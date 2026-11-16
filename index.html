@@ -1164,15 +1164,45 @@
       const teacher = teachers.find(t => t.name === teacherName);
       if (!teacher) return { hasConflict: false };
 
-      const scheduleClass = teacher.periods[currentDay] ? teacher.periods[currentDay][periodNum - 1] : "";
-      if (scheduleClass && scheduleClass.trim() !== "" && !scheduleClass.includes("اجتماع") && !scheduleClass.includes("التمهن")) {
+      // 1. هل حصته الأصلية في هذه الحصة تم ترحيلها/تبديلها إلى حصة أخرى؟
+      const origClass = teacher.periods[currentDay] ? teacher.periods[currentDay][periodNum - 1] : "";
+      const isSwappedAway = assignments.some(a => 
+        a.assignedTeacher === teacherName && 
+        a.isSwap && 
+        a.originalFromPeriod === periodNum && 
+        a.swapToPeriod !== periodNum
+      );
+
+      // 2. هل لديه حصة أخرى تم ترحيلها/تبديلها إلى هذه الحصة؟
+      const swappedIn = assignments.find(a => 
+        a.assignedTeacher === teacherName && 
+        a.isSwap && 
+        a.swapToPeriod === periodNum && 
+        a.originalFromPeriod !== periodNum
+      );
+
+      // 3. تحديد الصف الذي يدرسه المعلم فعلياً في هذه الحصة الآن
+      let effectiveClass = "";
+      if (swappedIn) {
+        effectiveClass = swappedIn.className;
+      } else if (origClass && !isSwappedAway) {
+        effectiveClass = origClass;
+      }
+
+      if (effectiveClass && effectiveClass.trim() !== "" && !effectiveClass.includes("اجتماع") && !effectiveClass.includes("التمهن")) {
         return {
           hasConflict: true,
-          msg: `تعارض! المعلم [${teacherName}] لديه حصة رسمية مع صف [${scheduleClass}] في الحصة (${periodNum}).`
+          msg: `تعارض! المعلم [${teacherName}] لديه حصة رسمية مع صف [${effectiveClass}] في الحصة (${periodNum}).`
         };
       }
 
-      const doubleCover = assignments.find(a => a.id !== taskId && a.period === periodNum && a.assignedTeacher === teacherName && !a.isPartnerRow);
+      // 4. فحص هل هو مكلف بتأمين حصة أخرى في نفس التوقيت (تعارض مزدوج)
+      const doubleCover = assignments.find(a => 
+        a.id !== taskId && 
+        !a.isPartnerRow && 
+        a.assignedTeacher === teacherName && 
+        (a.isSwap ? a.swapToPeriod === periodNum : a.period === periodNum)
+      );
       if (doubleCover) {
         return {
           hasConflict: true,
@@ -1181,6 +1211,19 @@
       }
 
       return { hasConflict: false };
+    }
+
+    function updateAllConflicts() {
+      const currentDay = document.getElementById('selectedDay').value;
+      assignments.forEach(task => {
+        if (!task.isPartnerRow) {
+          const targetP = task.isSwap ? task.swapToPeriod : task.period;
+          const res = checkConflict(task.assignedTeacher, targetP, currentDay, task.id);
+          task.conflict = res.hasConflict;
+          task.conflictMsg = res.msg || "";
+        }
+      });
+      updateGlobalConflictAlert();
     }
 
     function handleManualChange(taskId, newTeacherName) {
@@ -1239,6 +1282,7 @@
     }
 
     function renderDocumentTables() {
+      updateAllConflicts();
       renderSwapsTable();
       renderCoverageTables();
       renderComparisonSection();
