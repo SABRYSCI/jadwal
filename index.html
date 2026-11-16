@@ -1659,7 +1659,8 @@
     k.assignedTeacher = ''; k.isSwap = false;
     const t = teachers.find(x => x.name === name);
     if (t) {
-      if (!sw && isBusy(slotClass(t, DAY(), k.period))) sw = findSwapOption(t, k.period, DAY());
+      const own = slotClass(t, DAY(), k.period);
+      if (!sw && own !== k.className && isBusy(own)) sw = findSwapOption(t, k.period, DAY());
       if (sw) addSwapRows(k, t, sw);
     }
     k.assignedTeacher = name || '';
@@ -1669,6 +1670,8 @@
   function bestCandidate(k, day) {
     const pool = teachers.filter(t => !absOf(t.name)).map(t => ({ t, cls: slotClass(t, day, k.period), same: t.dept === k.dept, wl: getWeeklyLoad(t), dl: getDailyLoad(t, day) }));
     const sorter = (a, b) => (b.same - a.same) || ((a.wl >= 19) - (b.wl >= 19)) || (a.dl - b.dl) || (a.wl - b.wl);
+    const partner = pool.find(e => e.cls === k.className);   // معلم النصف الآخر (نفس الصف ونفس الحصة)
+    if (partner) return { teacher: partner.t };
     const free = pool.filter(e => !isBusy(e.cls)).sort(sorter);
     if (free.length) return { teacher: free[0].t };
     for (const e of pool.filter(e => isBusy(e.cls)).sort(sorter)) {
@@ -1703,6 +1706,8 @@
     const dbl = assignments.find(a => a.id !== taskId && !a.isPartnerRow && a.assignedTeacher === name && (a.isSwap ? a.swapToPeriod === p : a.period === p));
     if (dbl) return { hasConflict: true, msg: `تعارض مزدوج! المعلم [${name}] مكلّف بالفعل بصف [${dbl.className}] في الحصة (${p}).` };
     const c = slotClass(t, day, p, taskId);
+    const task = assignments.find(a => a.id === taskId);
+    if (task && !task.isSwap && c === task.className) return { hasConflict: false };   // دمج الصف مع معلم النصف الآخر
     if (isBusy(c)) return { hasConflict: true, msg: `تعارض! المعلم [${name}] لديه حصة رسمية مع صف [${c}] في الحصة (${p}).` };
     return { hasConflict: false };
   };
@@ -1740,11 +1745,14 @@
   // ---------- استمارة تأمين الحصص ----------
   const PN = ["الأولى", "الثانية", "الثالثة", "الرابعة", "الخامسة", "السادسة", "السابعة"];
   function subCell(k, day) {
-    const free = [], busy = [];
+    const free = [], busy = [], pair = [];
+    let merged = false;
     teachers.forEach(t => {
       if (absOf(t.name)) return;
       const o = `<option value="${t.name}" ${t.name === k.assignedTeacher ? 'selected' : ''}>${t.name} (${t.dept})</option>`;
-      (isBusy(slotClass(t, day, k.period, k.id)) ? busy : free).push(o);
+      const cl = slotClass(t, day, k.period, k.id);
+      if (cl === k.className) { pair.push(o); if (t.name === k.assignedTeacher) merged = true; }
+      else (isBusy(cl) ? busy : free).push(o);
     });
     const sw = assignments.filter(a => a.linkedTaskId === k.id && a.isPartnerRow);
     const note = sw.length === 2 ? `<div class="text-[10px] text-blue-700 font-bold">🔄 حصة (${sw[0].className}) من ح${sw[0].originalFromPeriod} إلى ح${sw[0].swapToPeriod} مع ${sw[1].assignedTeacher}</div>` : '';
@@ -1752,13 +1760,14 @@
       <div class="no-print space-y-1">
         <select onchange="handleManualChange('${k.id}',this.value)" class="w-full text-[11px] font-bold p-1 border rounded ${k.conflict ? 'border-rose-500 bg-rose-50 text-rose-900 ring-2 ring-rose-400' : 'border-slate-300 bg-white text-slate-800'}">
           <option value="">-- اختر بديلاً --</option>
+          ${pair.length ? `<optgroup label="👥 معلم النصف الآخر (نفس الصف والحصة)">${pair.join('')}</optgroup>` : ''}
           <optgroup label="🟢 فراغ في هذه الحصة">${free.join('')}</optgroup>
           <optgroup label="🟡 مشغول (تبديل تلقائي)">${busy.join('')}</optgroup>
         </select>
-        ${k.conflict ? `<div class="text-[10px] text-rose-700 font-bold leading-tight">⚠️ ${k.conflictMsg}</div>` : ''}${note}
+        ${k.conflict ? `<div class="text-[10px] text-rose-700 font-bold leading-tight">⚠️ ${k.conflictMsg}</div>` : ''}${merged ? '<div class="text-[10px] text-emerald-700 font-bold">👥 دمج الصف مع معلم النصف الآخر</div>' : ''}${note}
         <button onclick="skipSlot('${k.id}')" class="text-[10px] text-rose-600 underline font-bold">✕ إلغاء تأمين هذه الحصة</button>
       </div>
-      <div class="hidden print:block text-center font-extrabold text-xs text-slate-900 py-1">${k.assignedTeacher || '..................'}</div></td>`;
+      <div class="hidden print:block text-center font-extrabold text-xs text-slate-900 py-1">${k.assignedTeacher || '..................'}${merged ? '<div class="text-[9px] font-normal">(دمج الصف)</div>' : ''}</div></td>`;
   }
 
   function skipCell(id) {
