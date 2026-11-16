@@ -1611,6 +1611,7 @@
   const E = id => document.getElementById(id);
   const DAY = () => E('selectedDay').value;
   const isBusy = c => !!c && c.trim() !== '' && !c.includes('اجتماع') && !c.includes('التمهن');
+  const skipSet = new Set();   // حصص ألغى المستخدم تأمينها: «يوم|id»
   const absOf = n => absences.find(a => a.name === n);
   const endOf = a => a.endPeriod || 7;
   const absLabel = a => { const e = endOf(a); return (a.reason || 'غياب') + ((a.startPeriod === 1 && e === 7) ? '' : ` (ح${a.startPeriod}${e > a.startPeriod ? '–ح' + e : ''})`); };
@@ -1619,7 +1620,7 @@
   // الصف الذي يدرّسه المعلم فعلياً في حصة معينة (بعد احتساب التبديلات والتأمين الحالية)
   function slotClass(t, day, p, skipId) {
     let c = (t.periods[day] || [])[p - 1] || '';
-    const mine = assignments.filter(a => a.assignedTeacher === t.name);
+    const mine = assignments.filter(a => a.assignedTeacher === t.name && a.id !== skipId);
     if (mine.some(a => a.isSwap && a.originalFromPeriod === p && a.swapToPeriod !== p)) c = '';
     const into = mine.find(a => a.isSwap && a.swapToPeriod === p && a.originalFromPeriod !== p);
     if (into) c = into.className;
@@ -1676,7 +1677,35 @@
     }
     return null;
   }
+
+  // خيارات ترحيل حصة المعلم A من الحصة p (صف X) إلى حصة أخرى q، مع تبديل داخلي مع معلم الصف في q
+  function relocOptions(A, p, X, day) {
+    const out = [];
+    for (let q = 1; q <= 7; q++) {
+      if (q === p) continue;
+      const mine = slotClass(A, day, q);
+      if (mine !== '') { out.push({ q, ok: false, why: `${A.name} لديه حصة (${mine}) في ح${q}` }); continue; }
+      const B = teachers.find(t => t.name !== A.name && slotClass(t, day, q) === X);
+      if (!B) { out.push({ q, ok: true, B: null }); continue; }
+      if (absOf(B.name)) { out.push({ q, ok: false, why: `${B.name} مسجّل غائباً/مشغولاً اليوم` }); continue; }
+      const bp = slotClass(B, day, p);
+      if (bp !== '') out.push({ q, ok: false, why: `${B.name} (${B.dept}) لديه حصة (${bp}) في ح${p}` });
+      else out.push({ q, ok: true, B });
+    }
+    return out;
+  }
   /*LOGIC_END*/
+
+  // فحص التعارض: لا يحتسب صف التبديل نفسه تعارضاً (كان يُظهر تنبيهاً خاطئاً لكل تبديل يدوي)
+  window.checkConflict = function (name, p, day, taskId) {
+    const t = teachers.find(x => x.name === name);
+    if (!name || !t) return { hasConflict: false };
+    const dbl = assignments.find(a => a.id !== taskId && !a.isPartnerRow && a.assignedTeacher === name && (a.isSwap ? a.swapToPeriod === p : a.period === p));
+    if (dbl) return { hasConflict: true, msg: `تعارض مزدوج! المعلم [${name}] مكلّف بالفعل بصف [${dbl.className}] في الحصة (${p}).` };
+    const c = slotClass(t, day, p, taskId);
+    if (isBusy(c)) return { hasConflict: true, msg: `تعارض! المعلم [${name}] لديه حصة رسمية مع صف [${c}] في الحصة (${p}).` };
+    return { hasConflict: false };
+  };
 
   window.runAutoAssignment = function () {
     updateDateText();
@@ -1688,9 +1717,9 @@
     const tasks = [];
     absences.forEach(ab => {
       const t = teachers.find(x => x.name === ab.name); if (!t) return;
-      (t.periods[day] || []).forEach((cls, i) => {
-        const p = i + 1;
-        if (p >= ab.startPeriod && p <= endOf(ab) && isBusy(cls)) {
+      [1, 2, 3, 4, 5, 6, 7].forEach(p => {
+        const cls = slotClass(t, day, p);
+        if (p >= ab.startPeriod && p <= endOf(ab) && isBusy(cls) && !skipSet.has(day + '|slot_' + ab.name + '_' + p)) {
           const k = { id: 'slot_' + ab.name + '_' + p, absentTeacher: ab.name, dept: t.dept, period: p, className: cls, assignedTeacher: '', originalFromPeriod: p, swapToPeriod: p,
                       isSwap: false, isManual: false, reason: absLabel(ab), conflict: false, conflictMsg: '', isPartnerRow: false, linkedTaskId: null };
           tasks.push(k); assignments.push(k);
@@ -1727,9 +1756,17 @@
           <optgroup label="🟡 مشغول (تبديل تلقائي)">${busy.join('')}</optgroup>
         </select>
         ${k.conflict ? `<div class="text-[10px] text-rose-700 font-bold leading-tight">⚠️ ${k.conflictMsg}</div>` : ''}${note}
+        <button onclick="skipSlot('${k.id}')" class="text-[10px] text-rose-600 underline font-bold">✕ إلغاء تأمين هذه الحصة</button>
       </div>
       <div class="hidden print:block text-center font-extrabold text-xs text-slate-900 py-1">${k.assignedTeacher || '..................'}</div></td>`;
   }
+
+  function skipCell(id) {
+    return `<td class="border border-slate-900 py-1 px-1 text-center text-[10px] bg-slate-50"><span class="text-slate-500 font-bold">لا تحتاج تأمين</span>
+      <button onclick="restoreSlot('${id}')" class="no-print block mx-auto text-blue-700 underline font-bold">↩ استعادة</button></td>`;
+  }
+  window.skipSlot = id => { skipSet.add(DAY() + '|' + id); runAutoAssignment(); };
+  window.restoreSlot = id => { skipSet.delete(DAY() + '|' + id); runAutoAssignment(); };
 
   window.renderCoverageTables = function () {
     const box = E('coverageTablesContainer'), day = DAY(), date = E('selectedDate').value || '---';
@@ -1741,14 +1778,15 @@
     box.innerHTML = '';
     absences.forEach(ab => {
       const t = teachers.find(x => x.name === ab.name); if (!t) return;
-      const cls = t.periods[day] || Array(7).fill('');
+      const cls = [1, 2, 3, 4, 5, 6, 7].map(p => slotClass(t, day, p));
       let h = '', c = '', s = '', g = '';
       cls.forEach((oc, i) => {
         const p = i + 1, on = p >= ab.startPeriod && p <= endOf(ab) && isBusy(oc);
         const k = assignments.find(a => a.absentTeacher === ab.name && a.period === p && !a.isPartnerRow);
         h += `<th class="border border-slate-900 py-1 px-1 bg-slate-100 font-bold w-[12%] text-center text-xs">${PN[i]}</th>`;
         c += `<td class="border border-slate-900 py-2 px-1 font-extrabold text-slate-900 text-center text-xs ${on ? 'bg-amber-50/50' : ''}">${oc || '—'}</td>`;
-        s += (on && k) ? subCell(k, day) : '<td class="border border-slate-900 py-1 px-1 text-center text-slate-300 text-xs bg-slate-50/30">—</td>';
+        const sid = 'slot_' + ab.name + '_' + p;
+        s += (on && k) ? subCell(k, day) : (on && skipSet.has(day + '|' + sid)) ? skipCell(sid) : '<td class="border border-slate-900 py-1 px-1 text-center text-slate-300 text-xs bg-slate-50/30">—</td>';
         g += '<td class="border border-slate-900 py-2 px-1"></td>';
       });
       const card = document.createElement('div');
@@ -1856,6 +1894,26 @@
     renderAbsenceBadges(); runAutoAssignment();
   };
 
+  const origManual = window.addManualSwapRecord;
+  window.addManualSwapRecord = function () {
+    const tn = E('manualTeacherSelect').value, f = +E('manualFromPeriodSelect').value, to = +E('manualToPeriodSelect').value;
+    if (assignments.some(a => a.isManual && a.isSwap && !a.isPartnerRow && a.assignedTeacher === tn && a.originalFromPeriod === f && a.swapToPeriod === to)) {
+      alert('هذا التبديل مسجل مسبقاً في جدول التبديلات.'); return;
+    }
+    origManual();
+    runAutoAssignment();   // يعيد بناء استمارة التأمين على الجدول الجديد بعد التبديل
+  };
+  window.cancelTwoWaySwap = function (taskId) {
+    const task = assignments.find(a => a.id === taskId);
+    if (task && task.isManual) assignments = assignments.filter(a => a.id !== taskId && a.linkedTaskId !== taskId);
+    else if (task) { task.userPicked = true; applySub(task, ''); }
+    runAutoAssignment();
+  };
+  window.deleteAssignment = function (id) {
+    assignments = assignments.filter(a => a.id !== id && a.linkedTaskId !== id);
+    runAutoAssignment();
+  };
+
   window.togglePick = function (ti, on) {
     const n = teachers[ti].name;
     if (on) absences.push({ name: n, type: 'full', startPeriod: 1, endPeriod: 7, reason: 'غياب كامل' });
@@ -1874,7 +1932,7 @@
 
   window.clearAllPicks = function () {
     if (!absences.length || confirm('مسح جميع التحديدات والتبديلات لهذا اليوم؟')) {
-      absences = []; assignments = []; renderAbsenceBadges(); runAutoAssignment();
+      absences = []; assignments = []; [...skipSet].forEach(x => { if (x.startsWith(DAY() + '|')) skipSet.delete(x); }); renderAbsenceBadges(); runAutoAssignment();
     }
   };
 
@@ -1922,6 +1980,61 @@
     }).join('');
   };
 
+  // ---------- ترحيل حصة (تبديل داخلي بدون تأمين) ----------
+  let rlMode = 't';
+  const TABOFF = 'pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition';
+  const realClass = c => schoolClasses.includes(c);
+
+  window.relocFill = function (mode) {
+    rlMode = mode || rlMode;
+    const day = DAY(), sel = E('rlLesson'); let h = '';
+    if (rlMode === 't') {
+      E('rlClass').value = '';
+      const t = teachers.find(x => x.name === E('rlTeacher').value);
+      if (t) for (let p = 1; p <= 7; p++) { const c = slotClass(t, day, p); if (realClass(c)) h += `<option value="${p}|${c}|${t.name}">ح${p}: ${c}</option>`; }
+    } else {
+      E('rlTeacher').value = '';
+      const c = E('rlClass').value;
+      if (c) for (let p = 1; p <= 7; p++) { const t = teachers.find(x => slotClass(x, day, p) === c); if (t) h += `<option value="${p}|${c}|${t.name}">ح${p}: ${t.name} (${t.dept})</option>`; }
+    }
+    sel.innerHTML = h || '<option value="">— لا توجد حصص —</option>';
+    renderReloc();
+  };
+
+  window.renderReloc = function () {
+    const box = E('rlCandidates'); if (!box) return;
+    const v = (E('rlLesson').value || '').split('|');
+    const A = teachers.find(t => t.name === v[2]);
+    if (!A) { box.innerHTML = '<div class="text-xs text-slate-500 font-bold">اختر المعلم (أو الصف) ثم الحصة المراد ترحيلها.</div>'; return; }
+    const p = +v[0], cls = v[1];
+    box.innerHTML = `<div class="text-xs font-bold text-teal-900">الحصة (${p}) للصف ${cls} — ${A.name}. اختر الحصة التي تُرحَّل إليها:</div>` +
+      relocOptions(A, p, cls, DAY()).map(o => o.ok
+        ? `<div class="flex items-center justify-between gap-2 bg-white border border-emerald-300 rounded-lg p-2 text-xs"><div><b>ح${o.q}</b> — ${o.B ? `${o.B.name} (${o.B.dept}) يأخذ ح${p}، و${A.name} يأخذ ح${o.q}` : `الصف بلا حصة في ح${o.q}: تُنقل حصة ${A.name} إليها`}</div>
+            <button onclick="doReloc('${A.name}',${p},${o.q},'${cls}',${o.B ? `'${o.B.name}'` : 'null'})" class="bg-teal-600 hover:bg-teal-700 text-white font-bold px-3 py-1 rounded-lg whitespace-nowrap">✓ تنفيذ الترحيل</button></div>`
+        : `<div class="bg-slate-50 border border-slate-200 rounded-lg p-2 text-[11px] text-slate-500"><b>ح${o.q}</b> — غير ممكن: ${o.why}</div>`).join('');
+  };
+
+  window.doReloc = function (an, p, q, cls, bn) {
+    const A = teachers.find(t => t.name === an), B = bn ? teachers.find(t => t.name === bn) : null; if (!A) return;
+    const reason = E('rlReason').value.trim() || 'ترحيل حصة (تبديل داخلي)', id = 'rel_' + Date.now();
+    const base = { absentTeacher: 'طلب يدوي', isSwap: true, isManual: true, reason, conflict: false, conflictMsg: '', className: cls };
+    assignments.push({ ...base, id, dept: A.dept, period: p, assignedTeacher: an, originalFromPeriod: p, swapToPeriod: q, isPartnerRow: false, linkedTaskId: null });
+    if (B) assignments.push({ ...base, id: 'partner_' + id, dept: B.dept, period: q, assignedTeacher: bn, originalFromPeriod: q, swapToPeriod: p, isPartnerRow: true, linkedTaskId: id });
+    runAutoAssignment();
+    relocFill();
+    E('rlMsg').innerHTML = `✅ تم تسجيل ترحيل الصف ${cls}: ح${p} ⇄ ح${q} — يظهر في استمارة التبديل فقط. (للتراجع: «حذف» من جدول التبديل)`;
+  };
+
+  const origSwitch = window.switchTab;
+  window.switchTab = function (tab) {
+    E('relocSection').classList.add('hidden'); E('tabRelocBtn').className = TABOFF;
+    if (tab !== 'reloc') return origSwitch(tab);
+    origSwitch('absence');
+    E('absenceSection').classList.add('hidden'); E('tabAbsenceBtn').className = TABOFF;
+    E('tabRelocBtn').className = 'pb-2.5 border-b-2 border-teal-600 text-teal-700 flex items-center gap-1.5 transition';
+    E('relocSection').classList.remove('hidden'); relocFill();
+  };
+
   // ---------- حفظ حالة كل يوم عند التنقل بين الأيام ----------
   const dayStore = {};
   let lastDay = DAY();
@@ -1933,6 +2046,7 @@
     absences = s.absences; assignments = s.assignments;
     renderAbsenceBadges();
     origDayChange();
+    if (E('rlLesson')) relocFill();
   };
 
   // ---------- الطباعة / حفظ PDF ----------
@@ -1955,6 +2069,28 @@
       <div id="reasonDiv" class="w-56 hidden"><label class="${lab}">السبب:</label>
         <input id="absReasonInput" list="absReasons" placeholder="اجتماع مع الإدارة..." class="${sel}"></div>
       <datalist id="absReasons"><option value="غياب"></option><option value="ورشة عمل"></option><option value="اجتماع مع الإدارة"></option><option value="زيارة صفية"></option><option value="مهمة إدارية / لجان"></option><option value="ظرف طارئ"></option></datalist>`);
+
+    // تبويب ترحيل الحصص
+    E('tabManualBtn').insertAdjacentHTML('afterend', `<button id="tabRelocBtn" onclick="switchTab('reloc')" class="${TABOFF}"><span>🔀</span> ترحيل حصة (تبديل داخلي)</button>`);
+    E('manualSwapSection').insertAdjacentHTML('afterend', `
+      <div id="relocSection" class="hidden">
+        <div class="bg-teal-50/70 p-4 rounded-xl border border-teal-200 space-y-3">
+          <div class="text-xs font-bold text-teal-900">🔀 المعلم حاضر وليس غائباً: تُرحَّل حصته إلى حصة أخرى ويأخذ مكانها معلم الصف الآخر (مثال: اختبار في الحصة 3 والصف لديه رياضة). يُسجَّل في استمارة التبديل فقط ولا يظهر في استمارة التأمين.</div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div><label class="block text-xs font-bold text-slate-700 mb-1">المعلم:</label>
+              <select id="rlTeacher" onchange="relocFill('t')" class="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs md:text-sm font-semibold"><option value="">— اختر معلماً —</option>${teachers.map(t => `<option value="${t.name}">${t.name} (${t.dept})</option>`).join('')}</select></div>
+            <div><label class="block text-xs font-bold text-slate-700 mb-1">أو الصف:</label>
+              <select id="rlClass" onchange="relocFill('c')" class="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs md:text-sm font-semibold"><option value="">— اختر صفاً —</option>${schoolClasses.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
+            <div><label class="block text-xs font-bold text-slate-700 mb-1">الحصة المراد ترحيلها:</label>
+              <select id="rlLesson" onchange="renderReloc()" class="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs md:text-sm font-semibold"></select></div>
+            <div><label class="block text-xs font-bold text-slate-700 mb-1">السبب:</label>
+              <input id="rlReason" list="rlReasons" placeholder="اختبار للصف / نشاط..." class="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs md:text-sm font-semibold">
+              <datalist id="rlReasons"><option value="اختبار للصف"></option><option value="اختبار وطني"></option><option value="نشاط مدرسي"></option><option value="حفظ حصة الرياضة"></option><option value="مهمة إدارية"></option></datalist></div>
+          </div>
+          <div id="rlMsg" class="text-xs font-bold text-emerald-700"></div>
+          <div id="rlCandidates" class="space-y-2"></div>
+        </div>
+      </div>`);
 
     // التبويب الأول: جدول اليوم + التحديد
     const first = E('tabDailyMasterBtn');
