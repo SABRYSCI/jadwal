@@ -99,7 +99,7 @@
         </div>
       </div>
 
-      <!-- تبويبات التحكم: (1) تسجيل الغياب والورش | (2) التبديل والتعديل اليدوي | (3) استعراض جدول معلم لليوم -->
+      <!-- تبويبات التحكم الأربعة -->
       <div class="border-t border-slate-100 pt-2">
         <div class="flex flex-wrap border-b border-slate-200 text-sm font-bold gap-2 md:gap-4 mb-4">
           <button id="tabAbsenceBtn" onclick="switchTab('absence')" class="pb-2.5 border-b-2 border-blue-600 text-blue-600 flex items-center gap-1.5 transition">
@@ -108,8 +108,11 @@
           <button id="tabManualBtn" onclick="switchTab('manual')" class="pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition">
             <span>🔄</span> تبديل / تعديل حصة يدوي
           </button>
+          <button id="tabDailyMasterBtn" onclick="switchTab('dailyMaster')" class="pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition">
+            <span>📅</span> جدول الحصص العام لليوم وفلترة الصفوف
+          </button>
           <button id="tabLookupBtn" onclick="switchTab('lookup')" class="pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition">
-            <span>🔍</span> استعراض جدول معلم محدد لليوم
+            <span>🔍</span> استعراض جدول معلم محدد
           </button>
         </div>
 
@@ -171,7 +174,7 @@
 
               <div>
                 <label class="block text-xs font-bold text-slate-700 mb-1">إلى الحصة (المراد التبديل إليها):</label>
-                <select id="manualToPeriodSelect" class="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs md:text-sm font-semibold">
+                <select id="manualToPeriodSelect" onchange="onManualToPeriodChange()" class="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs md:text-sm font-semibold">
                   <option value="1">الحصة 1</option>
                   <option value="2">الحصة 2</option>
                   <option value="3">الحصة 3</option>
@@ -209,7 +212,97 @@
           </div>
         </div>
 
-        <!-- تبويب (3): استعراض جدول معلم محدد لليوم المختار -->
+        <!-- تبويب (3): جدول الحصص العام لليوم وفلترة الصفوف (الميزة المطلوبة الجديدة) -->
+        <div id="dailyMasterSection" class="hidden space-y-4">
+          
+          <!-- صندوق فلترة الصف الدراسي المخصص -->
+          <div class="bg-blue-50/80 p-4 rounded-xl border border-blue-200 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">🏫</span>
+                <div>
+                  <h3 class="text-sm font-extrabold text-blue-900">فلترة جدول الصفوف اليومية:</h3>
+                  <p class="text-[11px] text-blue-700">اختر صفاً لعرض جميع معلميه من الحصة 1 إلى 7 وفحص إمكانية تأمينهم بنقرة واحدة</p>
+                </div>
+              </div>
+              <div class="w-64">
+                <select id="classFilterSelect" onchange="renderClassDaySchedule()" class="w-full bg-white border-2 border-blue-400 rounded-lg p-2 text-xs md:text-sm font-extrabold text-blue-950 focus:ring-2 focus:ring-blue-500">
+                  <option value="">-- اختر صفاً (مثال: 6ب1، 2ع1...) --</option>
+                  <!-- يعبأ تلقائياً بالصفوف -->
+                </select>
+              </div>
+            </div>
+
+            <!-- بطاقة عرض معلمي الصف المختار من الحصة 1 إلى 7 -->
+            <div id="classDayScheduleContainer" class="hidden pt-2">
+              <!-- تتولد بطاقات الحصص السبع للصف برمجياً -->
+            </div>
+
+            <!-- كارت فحص جدول المعلم المنبثق عند الضغط على اسمه من جدول الصف -->
+            <div id="inspectedTeacherCard" class="hidden mt-3 p-3 bg-white border-2 border-indigo-300 rounded-xl shadow-md transition">
+              <!-- تفاصيل إمكانية تأمين المعلم -->
+            </div>
+          </div>
+
+          <!-- أدوات البحث والفلترة في الجدول العام الكامل لليوم -->
+          <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <span>📋</span> <span>الجدول العام لجميع المعلمين في يوم (<span id="dailyMasterDayTitle" class="text-blue-900 font-extrabold">الإثنين</span>):</span>
+              </div>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <!-- بحث بالاسم -->
+                <input type="text" id="teacherSearchInput" oninput="renderDailyMasterTable()" placeholder="🔍 ابحث باسم المعلم..." class="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500 w-44">
+                
+                <!-- فلترة بالقسم -->
+                <select id="deptFilterSelect" onchange="renderDailyMasterTable()" class="bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold">
+                  <option value="">جميع الأقسام</option>
+                  <!-- يعبأ بالأقسام -->
+                </select>
+
+                <!-- فلترة المعلمين المفرغين في حصة محددة -->
+                <select id="periodFreeFilterSelect" onchange="renderDailyMasterTable()" class="bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold text-emerald-800 font-bold">
+                  <option value="">عرض الكل (مشغول وفراغ)</option>
+                  <option value="1">🟢 مفرغ في الحصة الأولى</option>
+                  <option value="2">🟢 مفرغ في الحصة الثانية</option>
+                  <option value="3">🟢 مفرغ في الحصة الثالثة</option>
+                  <option value="4">🟢 مفرغ في الحصة الرابعة</option>
+                  <option value="5">🟢 مفرغ في الحصة الخامسة</option>
+                  <option value="6">🟢 مفرغ في الحصة السادسة</option>
+                  <option value="7">🟢 مفرغ في الحصة السابعة</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- جدول الحصص العام الكامل لليوم (scrollable) -->
+            <div class="overflow-x-auto max-h-[460px] border border-slate-300 rounded-lg bg-white shadow-inner">
+              <table class="w-full border-collapse text-center text-xs">
+                <thead class="sticky top-0 bg-slate-200 text-slate-900 font-bold z-10 shadow-sm">
+                  <tr class="border-b border-slate-300">
+                    <th class="py-2 px-1 w-8 border-l border-slate-300">م</th>
+                    <th class="py-2 px-3 border-l border-slate-300 text-right">اسم المعلم</th>
+                    <th class="py-2 px-2 border-l border-slate-300 w-24">القسم</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-14">حصص اليوم</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-[10%]">ح1</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-[10%]">ح2</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-[10%]">ح3</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-[10%]">ح4</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-[10%]">ح5</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-[10%]">ح6</th>
+                    <th class="py-2 px-1 border-l border-slate-300 w-[10%]">ح7</th>
+                    <th class="py-2 px-1 w-16">إجراء</th>
+                  </tr>
+                </thead>
+                <tbody id="dailyMasterTableBody" class="divide-y divide-slate-200">
+                  <!-- تتولد صفوف المعلمين الـ 49 برمجياً -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- تبويب (4): استعراض جدول معلم محدد لليوم المختار -->
         <div id="lookupSection" class="hidden">
           <div class="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -351,8 +444,11 @@
 
     let teachers = JSON.parse(JSON.stringify(teachersDatabase));
     let absences = []; 
-    let assignments = []; // كل تكليفات التأمين لحصص الغائبين
-    let manualSwaps = []; // التبديلات اليدوية المسجلة
+    let assignments = []; 
+    let manualSwaps = []; 
+
+    // استخراج قائمة الصفوف المدرسية المتاحة (16 صفاً)
+    const schoolClasses = ["6ب١", "6ب٢", "6ب٣", "1ع١", "1ع٢", "1ع٣", "1ع٤", "2ع١", "2ع٢", "2ع٣", "2ع٤", "3ع١", "3ع٢", "3ع٣", "3ع٤", "3ع٥"];
 
     function getWeeklyLoad(teacher) {
       let count = 0;
@@ -384,8 +480,11 @@
       document.getElementById('selectedDate').valueAsDate = new Date();
       updateDateText();
       populateTeacherDropdowns();
+      populateClassFilterDropdown();
+      populateDeptFilterDropdown();
       onManualTeacherChange();
       renderLookupTeacherSchedule();
+      renderDailyMasterTable();
       runAutoAssignment();
     };
 
@@ -393,6 +492,8 @@
       updateDateText();
       onManualTeacherChange();
       renderLookupTeacherSchedule();
+      renderClassDaySchedule();
+      renderDailyMasterTable();
       runAutoAssignment();
     }
 
@@ -402,21 +503,29 @@
       document.getElementById('swapDocDateText').textContent = d || '---';
       document.getElementById('swapDocDayText').textContent = currentDay;
       document.getElementById('comparisonDayText').textContent = currentDay;
+      const masterTitle = document.getElementById('dailyMasterDayTitle');
+      if (masterTitle) masterTitle.textContent = currentDay;
     }
 
     function switchTab(tab) {
       const absBtn = document.getElementById('tabAbsenceBtn');
       const manBtn = document.getElementById('tabManualBtn');
+      const masterBtn = document.getElementById('tabDailyMasterBtn');
       const lookBtn = document.getElementById('tabLookupBtn');
+
       const absSec = document.getElementById('absenceSection');
       const manSec = document.getElementById('manualSwapSection');
+      const masterSec = document.getElementById('dailyMasterSection');
       const lookSec = document.getElementById('lookupSection');
 
       absBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition";
       manBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition";
+      masterBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition";
       lookBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition";
+
       absSec.classList.add('hidden');
       manSec.classList.add('hidden');
+      masterSec.classList.add('hidden');
       lookSec.classList.add('hidden');
 
       if (tab === 'absence') {
@@ -426,6 +535,11 @@
         manBtn.className = "pb-2.5 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-1.5 transition";
         manSec.classList.remove('hidden');
         onManualTeacherChange();
+      } else if (tab === 'dailyMaster') {
+        masterBtn.className = "pb-2.5 border-b-2 border-blue-700 text-blue-700 flex items-center gap-1.5 transition";
+        masterSec.classList.remove('hidden');
+        renderClassDaySchedule();
+        renderDailyMasterTable();
       } else if (tab === 'lookup') {
         lookBtn.className = "pb-2.5 border-b-2 border-amber-600 text-amber-600 flex items-center gap-1.5 transition";
         lookSec.classList.remove('hidden');
@@ -460,6 +574,237 @@
         optL.value = t.name;
         optL.textContent = `${t.name} (${t.dept})`;
         selectLook.appendChild(optL);
+      });
+    }
+
+    function populateClassFilterDropdown() {
+      const select = document.getElementById('classFilterSelect');
+      select.innerHTML = '<option value="">-- اختر صفاً (مثال: 6ب1، 2ع1...) --</option>';
+      schoolClasses.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = `صف (${c})`;
+        select.appendChild(opt);
+      });
+    }
+
+    function populateDeptFilterDropdown() {
+      const select = document.getElementById('deptFilterSelect');
+      const depts = Array.from(new Set(teachers.map(t => t.dept))).filter(d => d);
+      select.innerHTML = '<option value="">جميع الأقسام</option>';
+      depts.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        select.appendChild(opt);
+      });
+    }
+
+    // عرض جدول الحصص الخاص بصف محدد من الحصة 1 إلى 7
+    function renderClassDaySchedule() {
+      const select = document.getElementById('classFilterSelect');
+      const className = select.value;
+      const container = document.getElementById('classDayScheduleContainer');
+      const inspectedCard = document.getElementById('inspectedTeacherCard');
+      const currentDay = document.getElementById('selectedDay').value;
+
+      inspectedCard.classList.add('hidden');
+
+      if (!className) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+      }
+
+      container.classList.remove('hidden');
+      const periodNames = ["الأولى", "الثانية", "الثالثة", "الرابعة", "الخامسة", "السادسة", "السابعة"];
+
+      let cardsHtml = '';
+      for (let pIdx = 0; pIdx < 7; pIdx++) {
+        const pNum = pIdx + 1;
+        const teacher = getOriginalTeacherOfClass(currentDay, pNum, className);
+        
+        cardsHtml += `
+          <div class="bg-white border-2 ${teacher ? 'border-blue-300 hover:border-blue-600' : 'border-slate-200'} rounded-xl p-2.5 text-center transition shadow-sm">
+            <div class="text-[10px] font-black text-slate-400 mb-1 border-b border-slate-100 pb-0.5">الحصة ${periodNames[pIdx]}</div>
+            ${teacher ? `
+              <div class="font-bold text-xs text-slate-800">${teacher.dept}</div>
+              <button onclick="inspectTeacherForCoverage('${teacher.name}', '${className}', ${pNum})" class="mt-1 w-full bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-900 font-extrabold text-[11px] py-1 px-1.5 rounded-lg border border-blue-200 transition flex items-center justify-center gap-1" title="انقر لفحص جدول ${teacher.name} وإمكانية تأمينه">
+                <span>👤</span> <span class="truncate">${teacher.name}</span>
+              </button>
+            ` : `
+              <div class="text-xs text-slate-400 font-bold py-2">فراغ / لا يوجد</div>
+            `}
+          </div>
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="bg-white/80 p-3 rounded-xl border border-blue-200 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-black text-blue-950">🗓️ معلمو صف (${className}) يوم (${currentDay}) من الحصة 1 إلى 7:</span>
+            <span class="text-[10px] text-blue-600 font-bold bg-blue-100/60 px-2 py-0.5 rounded">اضغط على اسم أي معلم لفحص جدوله وتأمينه</span>
+          </div>
+          <div class="grid grid-cols-7 gap-1.5">
+            ${cardsHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    // فحص المعلم والذهاب لجدوله عند النقر عليه من جدول الصف
+    function inspectTeacherForCoverage(teacherName, fromClassName, classPeriodNum) {
+      const currentDay = document.getElementById('selectedDay').value;
+      const teacher = teachers.find(t => t.name === teacherName);
+      if (!teacher) return;
+
+      const card = document.getElementById('inspectedTeacherCard');
+      card.classList.remove('hidden');
+
+      const periodsToday = teacher.periods[currentDay] || ["","","","","","",""];
+      const freePeriods = [];
+      periodsToday.forEach((p, idx) => {
+        if (!p || p.trim() === "") freePeriods.push(idx + 1);
+      });
+
+      const dailyLoad = getDailyLoad(teacher, currentDay);
+      const weeklyLoad = getWeeklyLoad(teacher);
+      const isEligible = weeklyLoad < 19;
+
+      card.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-2 mb-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-black text-indigo-950">🔍 فحص جدول المعلم: [${teacher.name}]</span>
+            <span class="text-xs text-slate-500 font-bold">(${teacher.dept})</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs font-bold">
+            <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded">حصص اليوم: ${dailyLoad}</span>
+            <span class="${isEligible ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'} px-2 py-0.5 rounded">نصاب الأسبوع: ${weeklyLoad} حصة</span>
+            <button onclick="document.getElementById('inspectedTeacherCard').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 font-black text-sm mr-2">✕ إغلاق</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-7 gap-1 text-center mb-3">
+          ${periodsToday.map((p, idx) => {
+            const pNum = idx + 1;
+            const isThisClass = pNum === classPeriodNum;
+            const isFree = !p || p.trim() === "";
+            let bgClass = isFree ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-slate-100 text-slate-800 border-slate-300 font-bold";
+            if (isThisClass) bgClass = "bg-blue-600 text-white font-extrabold border-blue-700 ring-2 ring-blue-300";
+            return `
+              <div class="border rounded p-1.5 ${bgClass} text-xs">
+                <div class="text-[10px] opacity-80">ح${pNum}</div>
+                <div class="truncate font-extrabold">${isFree ? 'فراغ' : p}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 bg-indigo-50 p-2 rounded-lg text-xs">
+          <div class="text-indigo-900 font-bold">
+            ${freePeriods.length > 0 ? `
+              <span>🟢 المعلم مفرغ اليوم في الحصص: <b>${freePeriods.join(' و ')}</b> (يمكنه تأمين أي منها لزميل غائب)</span>
+            ` : `
+              <span class="text-rose-700">🔴 المعلم لا يملك أي حصة فراغ اليوم (جدوله ممتلئ)</span>
+            `}
+          </div>
+          <div class="flex gap-2">
+            <button onclick="selectTeacherForManualSwap('${teacher.name}', ${classPeriodNum})" class="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-3 py-1 rounded-lg shadow-sm text-xs transition">
+              🔄 تبديل حصة (${fromClassName}) لهذا المعلم
+            </button>
+          </div>
+        </div>
+      `;
+
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function selectTeacherForManualSwap(teacherName, fromPeriod) {
+      switchTab('manual');
+      const teacherSelect = document.getElementById('manualTeacherSelect');
+      teacherSelect.value = teacherName;
+      onManualTeacherChange();
+      const fromSelect = document.getElementById('manualFromPeriodSelect');
+      fromSelect.value = fromPeriod;
+      onManualFromPeriodChange();
+    }
+
+    // رسم الجدول العام الكامل للمعلمين لليوم المختار
+    function renderDailyMasterTable() {
+      const tbody = document.getElementById('dailyMasterTableBody');
+      const currentDay = document.getElementById('selectedDay').value;
+      const searchKeyword = (document.getElementById('teacherSearchInput') ? document.getElementById('teacherSearchInput').value : "").trim().toLowerCase();
+      const selectedDept = document.getElementById('deptFilterSelect') ? document.getElementById('deptFilterSelect').value : "";
+      const freePeriodFilter = document.getElementById('periodFreeFilterSelect') ? document.getElementById('periodFreeFilterSelect').value : "";
+
+      tbody.innerHTML = '';
+
+      let filteredTeachers = teachers.filter(t => {
+        if (searchKeyword && !t.name.toLowerCase().includes(searchKeyword)) return false;
+        if (selectedDept && t.dept !== selectedDept) return false;
+        if (freePeriodFilter) {
+          const pIdx = parseInt(freePeriodFilter, 10) - 1;
+          const slot = t.periods[currentDay] ? t.periods[currentDay][pIdx] : "";
+          if (slot && slot.trim() !== "") return false; // ليس مفرغاً في تلك الحصة
+        }
+        return true;
+      });
+
+      if (filteredTeachers.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="12" class="py-6 text-center text-slate-400 font-bold text-xs">
+              لا يوجد معلمين يطابقون معايير البحث والفلترة في هذا اليوم.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      filteredTeachers.forEach((t, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = idx % 2 === 0 ? "bg-white hover:bg-blue-50/40" : "bg-slate-50/60 hover:bg-blue-50/40";
+
+        const dailyCount = getDailyLoad(t, currentDay);
+        const periodsToday = t.periods[currentDay] || ["","","","","","",""];
+
+        let periodsTdHtml = '';
+        periodsToday.forEach((p, pIdx) => {
+          const pNum = pIdx + 1;
+          const isFree = !p || p.trim() === "";
+          
+          let cellContent = '';
+          if (isFree) {
+            cellContent = `<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200">فراغ</span>`;
+          } else {
+            let badgeBg = "bg-slate-100 text-slate-800 border-slate-300";
+            if (p.includes("6ب")) badgeBg = "bg-amber-100 text-amber-900 border-amber-300";
+            else if (p.includes("1ع")) badgeBg = "bg-blue-100 text-blue-900 border-blue-300";
+            else if (p.includes("2ع")) badgeBg = "bg-indigo-100 text-indigo-900 border-indigo-300";
+            else if (p.includes("3ع")) badgeBg = "bg-purple-100 text-purple-900 border-purple-300";
+
+            cellContent = `<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${badgeBg}">${p}</span>`;
+          }
+
+          periodsTdHtml += `<td class="py-1.5 px-1 border-l border-slate-200">${cellContent}</td>`;
+        });
+
+        tr.innerHTML = `
+          <td class="py-2 px-1 text-slate-400 font-bold border-l border-slate-200">${idx + 1}</td>
+          <td class="py-2 px-3 font-extrabold text-slate-900 text-right border-l border-slate-200">
+            <span class="hover:text-blue-700 cursor-pointer" onclick="switchTab('lookup'); document.getElementById('lookupTeacherSelect').value='${t.name}'; renderLookupTeacherSchedule();">${t.name}</span>
+          </td>
+          <td class="py-2 px-2 text-slate-600 font-semibold border-l border-slate-200 text-xs">${t.dept}</td>
+          <td class="py-2 px-1 font-black text-xs border-l border-slate-200 text-blue-900">${dailyCount}</td>
+          ${periodsTdHtml}
+          <td class="py-1 px-1">
+            <button onclick="switchTab('lookup'); document.getElementById('lookupTeacherSelect').value='${t.name}'; renderLookupTeacherSchedule();" class="text-[10px] bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 font-bold px-1.5 py-1 rounded transition border border-slate-200">
+              تفاصيل
+            </button>
+          </td>
+        `;
+
+        tbody.appendChild(tr);
       });
     }
 
@@ -531,23 +876,66 @@
       }
     }
 
+    function onManualToPeriodChange() {
+      const teacherName = document.getElementById('manualTeacherSelect').value;
+      const currentDay = document.getElementById('selectedDay').value;
+      const teacher = teachers.find(t => t.name === teacherName);
+      if (teacher) {
+        renderManualTeacherSchedulePreview(teacher, teacher.periods[currentDay], currentDay);
+      }
+    }
+
     function renderManualTeacherSchedulePreview(teacher, dayPeriods, currentDay) {
       const container = document.getElementById('manualTeacherSchedulePreview');
       const fromP = parseInt(document.getElementById('manualFromPeriodSelect').value, 10) || 1;
+      const toP = parseInt(document.getElementById('manualToPeriodSelect').value, 10) || 2;
+
+      const className = (dayPeriods && dayPeriods[fromP - 1]) || "";
+      const partnerTeacher = className ? getOriginalTeacherOfClass(currentDay, toP, className) : null;
+      const hasPartner = partnerTeacher && partnerTeacher.name !== teacher.name;
+
+      const targetSlotClass = dayPeriods[toP - 1] || "";
+      const isTargetSlotBusy = targetSlotClass && targetSlotClass.trim() !== "" && !targetSlotClass.includes("اجتماع") && !targetSlotClass.includes("التمهن");
+
+      let swapNoticeHtml = "";
+      if (hasPartner) {
+        swapNoticeHtml = `
+          <div class="mt-2 p-2 bg-blue-50 border border-blue-300 rounded text-[11px] text-blue-900 font-bold flex items-center justify-between">
+            <div>
+              <span>🔄 <b>تم رصد تبديل ثنائي للصف (${className}):</b></span>
+              <span class="block font-normal text-[10px] text-blue-800">
+                الحصة (${toP}) لدى المعلم <b>[${partnerTeacher.name}]</b>. عند التأكيد سيتم إدراج سطرين متبادلين:
+                <br>• [${teacher.name}]: من ${fromP} إلى ${toP}
+                <br>• [${partnerTeacher.name}]: من ${toP} إلى ${fromP}
+              </span>
+            </div>
+            <span class="bg-blue-600 text-white px-2 py-1 rounded text-[10px]">تبديل متبادل</span>
+          </div>
+        `;
+      } else if (isTargetSlotBusy) {
+        swapNoticeHtml = `
+          <div class="mt-2 p-2 bg-rose-50 border border-rose-300 rounded text-[11px] text-rose-800 font-bold">
+            ⚠️ <b>تنبيه تعارض:</b> المعلم [${teacher.name}] لديه حصة رسمية مع صف [${targetSlotClass}] في الحصة (${toP})!
+          </div>
+        `;
+      }
 
       container.innerHTML = `
         <div class="text-[11px] font-bold text-slate-700 mb-1 flex justify-between">
           <span>جدول [${teacher.name}] يوم ${currentDay}:</span>
-          <span class="text-indigo-600">الحصة المحددة للنقل: الحصة (${fromP})</span>
+          <span class="text-indigo-600 font-extrabold">من الحصة (${fromP}) ➔ إلى الحصة (${toP})</span>
         </div>
         <div class="grid grid-cols-7 gap-1 text-center text-[10px]">
           ${dayPeriods.map((p, idx) => {
             const pNum = idx + 1;
-            const isSelected = pNum === fromP;
+            const isFrom = pNum === fromP;
+            const isTo = pNum === toP;
             const isFree = !p || p.trim() === "";
             let bgCol = isFree ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-slate-100 text-slate-700 border-slate-300";
-            if (isSelected) {
+            if (isFrom) {
               bgCol = "bg-indigo-600 text-white font-extrabold border-indigo-700 ring-2 ring-indigo-400";
+            } else if (isTo) {
+              bgCol = "bg-amber-500 text-white font-extrabold border-amber-600";
             }
             return `
               <div class="border rounded p-1 ${bgCol}">
@@ -557,6 +945,7 @@
             `;
           }).join('')}
         </div>
+        ${swapNoticeHtml}
       `;
     }
 
@@ -578,7 +967,10 @@
       const className = (teacher.periods[currentDay] && teacher.periods[currentDay][fromPeriod - 1]) || "حصة خاصة";
 
       const targetSlotClass = teacher.periods[currentDay] ? teacher.periods[currentDay][toPeriod - 1] : "";
-      const hasConflict = targetSlotClass && targetSlotClass.trim() !== "" && !targetSlotClass.includes("اجتماع") && !targetSlotClass.includes("التمهن");
+      const hasTeacherConflict = targetSlotClass && targetSlotClass.trim() !== "" && !targetSlotClass.includes("اجتماع") && !targetSlotClass.includes("التمهن");
+
+      const partnerTeacher = className ? getOriginalTeacherOfClass(currentDay, toPeriod, className) : null;
+      const hasPartner = partnerTeacher && partnerTeacher.name !== teacherName;
 
       const swapId = 'manual_' + Date.now();
       const task = {
@@ -593,13 +985,38 @@
         isSwap: true,
         isManual: true,
         reason: reason,
-        conflict: hasConflict,
-        conflictMsg: hasConflict ? `تعارض! المعلم [${teacherName}] لديه حصة رسمية مع صف [${targetSlotClass}] في الحصة (${toPeriod})!` : "",
+        conflict: hasTeacherConflict,
+        conflictMsg: hasTeacherConflict ? `تعارض! المعلم [${teacherName}] لديه حصة رسمية مع صف [${targetSlotClass}] في الحصة (${toPeriod})!` : "",
         isPartnerRow: false,
         linkedTaskId: null
       };
 
       assignments.push(task);
+
+      if (hasPartner) {
+        const partnerFromSlot = partnerTeacher.periods[currentDay] ? partnerTeacher.periods[currentDay][fromPeriod - 1] : "";
+        const hasPartnerConflict = partnerFromSlot && partnerFromSlot.trim() !== "" && !partnerFromSlot.includes("اجتماع") && !partnerFromSlot.includes("التمهن");
+
+        const partnerTask = {
+          id: 'partner_' + swapId,
+          absentTeacher: "طلب يدوي",
+          dept: partnerTeacher.dept,
+          period: toPeriod,
+          className: className,
+          assignedTeacher: partnerTeacher.name,
+          originalFromPeriod: toPeriod,
+          swapToPeriod: fromPeriod,
+          isSwap: true,
+          isManual: true,
+          reason: reason,
+          conflict: hasPartnerConflict,
+          conflictMsg: hasPartnerConflict ? `تعارض! المعلم الشريك [${partnerTeacher.name}] لديه حصة مع [${partnerFromSlot}] في الحصة (${fromPeriod})!` : "",
+          isPartnerRow: true,
+          linkedTaskId: swapId
+        };
+        assignments.push(partnerTask);
+      }
+
       updateGlobalConflictAlert();
       renderDocumentTables();
 
@@ -786,44 +1203,6 @@
       renderDocumentTables();
     }
 
-    function applyTwoWayClassSwap(taskId, partnerTeacherName, targetPeriod) {
-      const taskIndex = assignments.findIndex(a => a.id === taskId);
-      if (taskIndex === -1) return;
-      const task = assignments[taskIndex];
-
-      assignments = assignments.filter(a => a.linkedTaskId !== taskId);
-
-      const origPeriod = task.period;
-
-      task.isSwap = true;
-      task.originalFromPeriod = origPeriod;
-      task.swapToPeriod = targetPeriod;
-      task.conflict = false;
-      task.conflictMsg = "";
-
-      const partnerRow = {
-        id: 'partner_' + taskId + '_' + Date.now(),
-        absentTeacher: task.absentTeacher,
-        dept: (teachers.find(t => t.name === partnerTeacherName) || {}).dept || "",
-        period: targetPeriod,
-        className: task.className,
-        assignedTeacher: partnerTeacherName,
-        originalFromPeriod: targetPeriod,
-        swapToPeriod: origPeriod,
-        isSwap: true,
-        reason: task.reason || "تبديل متبادل",
-        conflict: false,
-        conflictMsg: "",
-        isPartnerRow: true,
-        linkedTaskId: taskId
-      };
-
-      assignments.splice(taskIndex + 1, 0, partnerRow);
-
-      updateGlobalConflictAlert();
-      renderDocumentTables();
-    }
-
     function cancelTwoWaySwap(taskId) {
       assignments = assignments.filter(a => a.linkedTaskId !== taskId);
       const task = assignments.find(a => a.id === taskId);
@@ -838,10 +1217,6 @@
       }
       updateGlobalConflictAlert();
       renderDocumentTables();
-    }
-
-    function applySubstituteResolution(taskId, newTeacherName) {
-      handleManualChange(taskId, newTeacherName);
     }
 
     function updateGlobalConflictAlert() {
@@ -863,21 +1238,16 @@
       }
     }
 
-    // الدالة الرئيسية لرسم الاستمارتين (تبديل الحصص + تأمين الحصص)
     function renderDocumentTables() {
       renderSwapsTable();
       renderCoverageTables();
       renderComparisonSection();
     }
 
-    // 1. رسم استمارة تبديل الحصص (فقط الحصص التي تم فيها تبديل فعلي من != إلى)
     function renderSwapsTable() {
       const tbody = document.getElementById('swapsTableBody');
-      const swapContainer = document.getElementById('swapFormContainer');
-      const divider = document.getElementById('formsDivider');
       tbody.innerHTML = '';
 
-      // تصفية الحصص التي تم فيها تبديل فعلي فقط (من != إلى)
       const realSwaps = assignments.filter(task => task.isSwap && task.originalFromPeriod !== task.swapToPeriod);
 
       if (realSwaps.length === 0) {
@@ -936,7 +1306,6 @@
       });
     }
 
-    // 2. رسم استمارة تأمين الحصص (مطابقة تماماً للصورة المرفقة: جدول أفقي لكل معلم غائب)
     function renderCoverageTables() {
       const container = document.getElementById('coverageTablesContainer');
       const currentDay = document.getElementById('selectedDay').value;
@@ -960,7 +1329,6 @@
 
         const teacherClasses = teacher.periods[currentDay] || ["","","","","","",""];
 
-        // بناء صفوف الجدول الأربعة (الحصة | الصف | المعلم البديل | التوقيع)
         let rowHeaderCells = "";
         let rowClassCells = "";
         let rowSubTeacherCells = "";
@@ -971,21 +1339,14 @@
           const origClass = teacherClasses[pIdx] || "";
           const isAbsentPeriod = pNum >= abs.startPeriod && origClass.trim() !== "" && !origClass.includes("اجتماع") && !origClass.includes("التمهن");
           
-          // العثور على التكليف المرتبط بهذه الحصة لهذا المعلم
           const task = assignments.find(a => a.absentTeacher === abs.name && a.period === pNum && !a.isPartnerRow);
 
-          // 1. خلية الحصة
           rowHeaderCells += `<th class="border border-slate-900 py-1 px-1 bg-slate-100 font-bold w-[12%] text-center text-xs">${periodNames[pIdx]}</th>`;
-
-          // 2. خلية الصف
           rowClassCells += `<td class="border border-slate-900 py-2 px-1 font-extrabold text-slate-900 text-center text-xs ${isAbsentPeriod ? 'bg-amber-50/50' : ''}">${origClass ? origClass : '—'}</td>`;
 
-          // 3. خلية المعلم البديل (تفاعلية على الشاشة مع فحص التعارض، ورسمية مطبوعة)
           if (isAbsentPeriod && task) {
             const hasConflict = task.conflict;
             const subName = task.assignedTeacher;
-            
-            // قائمة التعديل السريع على الشاشة
             const dropdownOptions = teachers.map(t => `<option value="${t.name}" ${t.name === subName ? 'selected' : ''}>${t.name} (${t.dept})</option>`).join('');
 
             rowSubTeacherCells += `
@@ -1011,22 +1372,18 @@
             rowSubTeacherCells += `<td class="border border-slate-900 py-1 px-1 text-center text-slate-300 text-xs bg-slate-50/30">—</td>`;
           }
 
-          // 4. خلية التوقيع
           rowSignCells += `<td class="border border-slate-900 py-2 px-1 text-slate-300 text-center text-xs"></td>`;
         }
 
-        // بناء كارت الاستمارة الأفقي المطابق للصورة 100%
         const formCard = document.createElement('div');
         formCard.className = "border-2 border-slate-900 rounded-lg overflow-hidden bg-white shadow-sm";
         formCard.innerHTML = `
-          <!-- شريط الرأس: اليوم | التاريخ | المعلم الغائب -->
           <div class="grid grid-cols-3 border-b-2 border-slate-900 bg-slate-100 text-xs md:text-sm font-bold text-slate-900 text-center py-1.5 divide-x-2 divide-slate-900 divide-x-reverse">
             <div>اليوم: <span class="font-normal mr-1 text-blue-900 font-bold">${currentDay}</span></div>
             <div>التاريخ: <span class="font-normal mr-1 text-blue-900 font-bold">${currentDate}</span></div>
             <div>المعلم الغائب: <span class="font-black mr-1 text-rose-900 text-sm">${abs.name}</span> ${abs.type === 'partial' ? `<span class="text-[11px] font-normal text-slate-600">(ورشة من ح${abs.startPeriod})</span>` : ''}</div>
           </div>
 
-          <!-- الجدول الأفقي المطابق للصورة المرفقة -->
           <div class="overflow-x-auto">
             <table class="w-full border-collapse text-center">
               <tbody>
@@ -1055,7 +1412,6 @@
       });
     }
 
-    // بناء وعرض قسم متابعة جداول المعلمين المعنيين (قبل وبعد التعديل)
     function renderComparisonSection() {
       const container = document.getElementById('comparisonCardsGrid');
       const currentDay = document.getElementById('selectedDay').value;
