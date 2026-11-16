@@ -2141,5 +2141,228 @@
 })();
 </script>
 
+
+<!-- ===========================================================================
+  تحديث: مساعد التبديل الذكي (اقتراحات + حل التعارض بتبديل ثلاثي + جداول المعلمين)
+=========================================================================== -->
+<script>
+(function () {
+  const E = id => document.getElementById(id);
+  const DAY = () => E('selectedDay').value;
+  const isFree = c => !c || !c.trim();
+  const isCls = c => schoolClasses.includes(c);
+  const absOf = n => absences.find(a => a.name === n);
+
+  /*MN_LOGIC_START*/
+  // الصف الذي يدرّسه المعلم فعلياً في الحصة p (بعد احتساب التبديلات والتأمين المسجلة)
+  function eff(t, day, p, skipId) {
+    let c = (t.periods[day] || [])[p - 1] || '';
+    const mine = assignments.filter(a => a.assignedTeacher === t.name && a.id !== skipId);
+    if (mine.some(a => a.isSwap && a.originalFromPeriod === p && a.swapToPeriod !== p)) c = '';
+    const into = mine.find(a => a.isSwap && a.swapToPeriod === p && a.originalFromPeriod !== p);
+    if (into) c = into.className;
+    const cov = mine.find(a => !a.isSwap && a.period === p);
+    if (cov) c = cov.className;
+    return c;
+  }
+
+  // حلول إخلاء حصة الشريك B في الحصة p (صفها Y): تنتقل Y إلى حصة r يكون B فارغاً فيها،
+  // ومعلم الصف Y في r (C) يأخذ الحصة p (يجب أن يكون فارغاً فيها)
+  function chains(B, p, q, Y, A, day) {
+    const out = [];
+    for (let r = 1; r <= 7; r++) {
+      if (r === p || r === q) continue;
+      if (!isFree(eff(B, day, r))) continue;
+      const all = teachers.filter(t => t.name !== B.name && eff(t, day, r) === Y);
+      if (!all.length) { out.push({ r, Y, C: null }); continue; }          // الصف Y فارغ في r: نقل مباشر
+      all.forEach(C => { if (C.name !== A.name && !absOf(C.name) && isFree(eff(C, day, p))) out.push({ r, Y, C }); });
+    }
+    return out;
+  }
+
+  // كل الخيارات الممكنة وغير الممكنة لترحيل حصة A من p
+  function build(A, p, day) {
+    const X = eff(A, day, p), res = [];
+    for (let q = 1; q <= 7; q++) {
+      if (q === p) continue;
+      const mine = eff(A, day, q);
+      if (!isFree(mine)) { res.push({ q, ok: false, why: `${A.name} لديه حصة (${mine}) في ح${q}` }); continue; }
+      const Bs = teachers.filter(t => t.name !== A.name && eff(t, day, q) === X);
+      if (!Bs.length) { res.push({ q, ok: true, kind: 'move', B: null, chain: null, w: 0 }); continue; }
+      let any = false; const whys = [];
+      Bs.forEach(B => {
+        if (absOf(B.name)) { whys.push(`${B.name} مسجّل غائباً اليوم`); return; }
+        const bp = eff(B, day, p);
+        if (isFree(bp)) { res.push({ q, ok: true, kind: 'swap', B, chain: null, w: 1 }); any = true; return; }
+        if (!isCls(bp)) { whys.push(`${B.name} لديه (${bp}) في ح${p} ولا يمكن نقلها`); return; }
+        const ch = chains(B, p, q, bp, A, day);
+        if (ch.length) { ch.forEach(c => res.push({ q, ok: true, kind: 'chain', B, bp, chain: c, w: 2 })); any = true; }
+        else whys.push(`${B.name} لديه (${bp}) في ح${p} ولا يوجد تبديل ممكن لها`);
+      });
+      if (!any) res.push({ q, ok: false, why: whys.join(' — '), B: Bs[0] });
+    }
+    const dist = o => Math.abs(o.q - p);
+    const ok = res.filter(o => o.ok).sort((a, b) => a.w - b.w || dist(a) - dist(b) || (a.chain && b.chain ? Math.abs(a.chain.r - p) - Math.abs(b.chain.r - p) : 0));
+    return { all: res, ok, X };
+  }
+
+  function movesOf(A, p, o, X) {
+    const m = [{ t: A, from: p, to: o.q, cls: X }];
+    if (o.B) {
+      m.push({ t: o.B, from: o.q, to: p, cls: X });
+      if (o.chain) {
+        m.push({ t: o.B, from: p, to: o.chain.r, cls: o.chain.Y });
+        if (o.chain.C) m.push({ t: o.chain.C, from: o.chain.r, to: p, cls: o.chain.Y });
+      }
+    }
+    return m;
+  }
+  /*MN_LOGIC_END*/
+
+  const ST = { A: null, p: 0, ok: [], all: [], X: '', sel: null, showAll: false };
+
+  function describe(o, A, p, X) {
+    if (o.kind === 'move') return `نقل حصة (${X}) من ح${p} إلى ح${o.q} — الصف فارغ في ح${o.q}، بدون إشراك معلم آخر.`;
+    if (o.kind === 'swap') return `تبديل مع <b>${o.B.name}</b> (${o.B.dept}): ${A.name} من ح${p} إلى ح${o.q}، و${o.B.name} من ح${o.q} إلى ح${p}.`;
+    if (o.kind === 'chain') {
+      const c = o.chain;
+      return `<span class="text-rose-700">⚠️ ${o.B.name} لديه (${o.bp}) في ح${p}.</span> الحل: ينقل ${o.B.name} حصة (${c.Y}) من ح${p} إلى ح${c.r}` +
+        (c.C ? `، ويأخذ ح${p} المعلم <b>${c.C.name}</b> (${c.C.dept}) بتبديل حصته.` : ` (الصف فارغ في ح${c.r}).`);
+    }
+    return o.why || '';
+  }
+
+  function tbl(t, role, mv, day, o, p) {
+    const before = [1, 2, 3, 4, 5, 6, 7].map(i => eff(t, day, i)), after = before.slice(), touched = new Set();
+    const mine = mv.filter(m => m.t === t);
+    mine.forEach(m => { after[m.from - 1] = ''; touched.add(m.from); touched.add(m.to); });
+    mine.forEach(m => { after[m.to - 1] = m.cls; });
+    const base = c => isFree(c) ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-800 border-slate-300 font-bold';
+    const cellB = (c, i) => {
+      let k = base(c);
+      if (o.kind === 'chain' && role === 'B' && i === p) k = 'bg-rose-100 text-rose-800 border-rose-400 font-extrabold';
+      if (touched.has(i)) k += ' ring-2 ring-amber-400';
+      return `<div class="border rounded p-1 ${k}"><div class="font-bold text-[10px]">ح${i}</div><div class="truncate text-[10px]">${c || 'فراغ'}</div></div>`;
+    };
+    const cellA = (c, i) => {
+      let k = base(c);
+      if (c !== before[i - 1]) k = isFree(c) ? 'bg-indigo-50 text-indigo-700 border-indigo-300 font-bold' : 'bg-blue-600 text-white border-blue-700 font-extrabold';
+      return `<div class="border rounded p-1 ${k}"><div class="font-bold text-[10px]">ح${i}</div><div class="truncate text-[10px]">${c || 'فراغ'}</div></div>`;
+    };
+    const lbl = { A: '① المعلم المطلوب تعديل حصته', B: o.kind === 'chain' ? '② شريك التبديل (لديه تعارض — يُحلّ بالخطوة ③)' : '② شريك التبديل', C: '③ معلم الحل (يبدّل حصته لإزالة التعارض)' }[role];
+    const col = { A: 'indigo', B: 'blue', C: 'amber' }[role];
+    return `<div class="bg-white border border-${col}-200 rounded-lg p-2 space-y-1.5">
+      <div class="flex flex-wrap justify-between gap-1 text-[11px] font-bold"><span class="text-${col}-800">${lbl}</span><span class="text-slate-800">${t.name} <span class="text-slate-500 font-normal">(${t.dept})</span></span></div>
+      <div class="text-[10px] font-bold text-slate-500">الجدول الحالي:</div>
+      <div class="grid grid-cols-7 gap-1 text-center">${before.map((c, i) => cellB(c, i + 1)).join('')}</div>
+      <div class="text-[10px] font-bold text-blue-800">بعد التبديل:</div>
+      <div class="grid grid-cols-7 gap-1 text-center">${after.map((c, i) => cellA(c, i + 1)).join('')}</div>
+    </div>`;
+  }
+
+  function render() {
+    const box = E('manualTeacherSchedulePreview'); if (!box) return;
+    const day = DAY(), A = ST.A, p = ST.p;
+    if (!A || !p) { box.innerHTML = '<div class="text-xs font-bold text-slate-500 p-2">لا توجد حصص صفية لهذا المعلم في هذا اليوم.</div>'; return; }
+    const sel = ST.sel, X = ST.X;
+    const kindTag = { move: ['emerald', 'نقل مباشر'], swap: ['blue', 'تبديل ثنائي'], chain: ['amber', 'تبديل ثلاثي (حل تعارض)'] };
+    const shown = ST.showAll ? ST.ok : ST.ok.slice(0, 6);
+    const cards = shown.map((o, i) => {
+      const [c, n] = kindTag[o.kind], on = o === sel;
+      return `<button type="button" onclick="mnSelect(${ST.ok.indexOf(o)})" class="text-right w-full border rounded-lg p-2 transition ${on ? `ring-2 ring-${c}-500 bg-${c}-50 border-${c}-400` : 'bg-white hover:bg-slate-50 border-slate-300'}">
+        <div class="flex items-center justify-between gap-2 mb-1"><span class="flex gap-1 items-center">${ST.ok.indexOf(o) === 0 ? '<span class="bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">⭐ الأفضل</span>' : ''}<span class="bg-${c}-100 text-${c}-800 text-[10px] font-bold px-1.5 py-0.5 rounded">${n}</span></span><b class="text-xs text-slate-800">إلى الحصة ${o.q}</b></div>
+        <div class="text-[11px] text-slate-700 leading-relaxed">${describe(o, A, p, X)}</div></button>`;
+    }).join('');
+    const bad = ST.all.filter(o => !o.ok);
+    let html = `<div class="space-y-3">
+      <div class="text-xs font-extrabold text-indigo-900">💡 اقتراحات ترحيل حصة (${X}) لـ ${A.name} من الحصة ${p} — مرتّبة من الأفضل:</div>
+      ${ST.ok.length ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-2">${cards}</div>` : '<div class="p-2 bg-rose-50 border border-rose-300 rounded text-[11px] font-bold text-rose-800">لا يوجد أي حل ممكن لهذه الحصة اليوم. راجع الأسباب أدناه.</div>'}
+      ${ST.ok.length > 6 ? `<button type="button" onclick="mnToggleAll()" class="text-[11px] font-bold text-indigo-700 underline">${ST.showAll ? 'عرض أقل' : `عرض كل الاقتراحات (${ST.ok.length})`}</button>` : ''}
+      ${bad.length ? `<details class="text-[11px] text-slate-600"><summary class="cursor-pointer font-bold">حصص غير ممكنة (${bad.length})</summary><ul class="list-disc list-inside mt-1 space-y-0.5">${bad.map(b => `<li><b>ح${b.q}</b>: ${b.why}</li>`).join('')}</ul></details>` : ''}`;
+    if (sel) {
+      const mv = movesOf(A, p, sel, X), order = [];
+      mv.forEach(m => { if (!order.includes(m.t)) order.push(m.t); });
+      const roleOf = t => t === A ? 'A' : (sel.B && t === sel.B ? 'B' : 'C');
+      const steps = mv.map(m => `<li>${m.t.name}: حصة (${m.cls}) من ح${m.from} إلى ح${m.to}</li>`).join('');
+      html += `<div class="border-t border-slate-200 pt-2 space-y-2">
+        <div class="text-xs font-extrabold text-slate-800">📋 جداول المعلمين المشاركين في التبديل (الحصة ${p} ⇄ ${sel.q}):</div>
+        ${sel.kind === 'forced' ? `<div class="p-2 bg-rose-50 border border-rose-300 rounded text-[11px] font-bold text-rose-800">⚠️ هذا الخيار يحتوي تعارضاً: ${sel.why}</div>` : ''}
+        <div class="grid grid-cols-1 lg:grid-cols-${Math.min(order.length, 3)} gap-2">${order.map(t => tbl(t, roleOf(t), mv, day, sel, p)).join('')}</div>
+        <div class="p-2 bg-blue-50 border border-blue-200 rounded text-[11px] text-blue-900"><b>ما سيُسجَّل في استمارة التبديل:</b><ol class="list-decimal list-inside mt-1">${steps}</ol></div>
+      </div>`;
+    }
+    box.innerHTML = html + '</div>';
+  }
+
+  function compute(auto) {
+    const day = DAY(), A = teachers.find(t => t.name === E('manualTeacherSelect').value), p = +E('manualFromPeriodSelect').value;
+    ST.A = A; ST.p = p || 0;
+    if (!A || !p) { ST.ok = []; ST.all = []; ST.sel = null; render(); return; }
+    const r = build(A, p, day);
+    ST.ok = r.ok; ST.all = r.all; ST.X = r.X;
+    if (auto) { ST.sel = r.ok[0] || null; if (ST.sel) E('manualToPeriodSelect').value = ST.sel.q; }
+    render();
+  }
+
+  function refresh(keepFrom) {
+    const day = DAY(), A = teachers.find(t => t.name === E('manualTeacherSelect').value); if (!A) return;
+    const fs = E('manualFromPeriodSelect'), prev = +fs.value; let h = '';
+    for (let p = 1; p <= 7; p++) { const c = eff(A, day, p); if (isCls(c)) h += `<option value="${p}">الحصة ${p}: ${c}</option>`; }
+    fs.innerHTML = h || '<option value="">— لا توجد حصص —</option>';
+    if (keepFrom && prev && [...fs.options].some(o => +o.value === prev)) fs.value = prev;
+    compute(true);
+  }
+
+  window.onManualTeacherChange = () => { E('mnMsg').innerHTML = ''; refresh(false); };
+  window.onManualFromPeriodChange = () => compute(true);
+  window.onManualToPeriodChange = function () {
+    const q = +E('manualToPeriodSelect').value;
+    if (!ST.A || !ST.p) return;
+    if (q === ST.p) { ST.sel = null; render(); return; }
+    let o = ST.ok.find(x => x.q === q);
+    if (!o) { const b = ST.all.find(x => x.q === q); o = { q, ok: false, kind: 'forced', B: b && b.B || null, chain: null, why: b ? b.why : '' }; }
+    ST.sel = o; render();
+  };
+  window.mnSelect = i => { ST.sel = ST.ok[i]; E('manualToPeriodSelect').value = ST.sel.q; render(); };
+  window.mnToggleAll = () => { ST.showAll = !ST.showAll; render(); };
+
+  window.addManualSwapRecord = function () {
+    const o = ST.sel, A = ST.A, p = ST.p, day = DAY();
+    if (!o || !A || !p) { alert('اختر أحد الاقتراحات أولاً.'); return; }
+    if (o.kind === 'forced' && !confirm('هذا الخيار فيه تعارض ولن يُحلّ تلقائياً. هل تريد إدراجه رغم ذلك؟')) return;
+    const X = ST.X, reason = E('manualReasonInput').value.trim() || 'تبديل حصة', id = 'manual_' + Date.now();
+    const base = { absentTeacher: 'طلب يدوي', isSwap: true, isManual: true, reason, conflict: false, conflictMsg: '' };
+    const forced = o.kind === 'forced';
+    assignments.push({ ...base, id, dept: A.dept, period: p, className: X, assignedTeacher: A.name, originalFromPeriod: p, swapToPeriod: o.q, isPartnerRow: false, linkedTaskId: null,
+                       conflict: forced, conflictMsg: forced ? `تعارض! ${o.why}` : '' });
+    if (o.B) {
+      assignments.push({ ...base, id: 'partner_' + id, dept: o.B.dept, period: o.q, className: X, assignedTeacher: o.B.name, originalFromPeriod: o.q, swapToPeriod: p, isPartnerRow: true, linkedTaskId: id });
+      if (o.chain) {
+        const c = o.chain, rs = reason + ' (حل تعارض)';
+        assignments.push({ ...base, reason: rs, id: 'chainB_' + id, dept: o.B.dept, period: p, className: c.Y, assignedTeacher: o.B.name, originalFromPeriod: p, swapToPeriod: c.r, isPartnerRow: true, linkedTaskId: id });
+        if (c.C) assignments.push({ ...base, reason: rs, id: 'chainC_' + id, dept: c.C.dept, period: c.r, className: c.Y, assignedTeacher: c.C.name, originalFromPeriod: c.r, swapToPeriod: p, isPartnerRow: true, linkedTaskId: id });
+      }
+    }
+    E('manualReasonInput').value = '';
+    const n = movesOf(A, p, o, X).length;
+    runAutoAssignment();
+    E('mnMsg').innerHTML = `✅ تم تسجيل التبديل (${n} ${n > 2 ? 'حركات' : 'حركتان'}) في استمارة التبديل${o.kind === 'chain' ? ' مع حل التعارض' : ''}. للتراجع: «إلغاء التبديل» من جدول التبديل.`;
+  };
+
+  // تحديث لوحة الاقتراحات تلقائياً بعد أي تغيير في الجدول (غياب، تأمين، إلغاء تبديل...)
+  const prevRun = window.runAutoAssignment;
+  window.runAutoAssignment = function () {
+    prevRun.apply(this, arguments);
+    const sec = E('manualSwapSection');
+    if (sec && !sec.classList.contains('hidden')) refresh(true);
+  };
+
+  // تهيئة: رسالة النجاح + تلميح
+  const pv = E('manualTeacherSchedulePreview');
+  pv.insertAdjacentHTML('beforebegin', '<div id="mnMsg" class="text-xs font-bold text-emerald-700"></div>');
+  if (E('manualTeacherSelect').value) refresh(false);
+})();
+</script>
+
 </body>
 </html>
