@@ -1595,5 +1595,406 @@
       });
     }
   </script>
+<!-- ==========================================================================
+  إضافة تطوير «نظام تبديل وتأمين الحصص»
+  الطريقة: افتح ملفك الأصلي، والصق هذه الكتلة كاملة (من <style> إلى </script>)
+  قبل وسم </body> مباشرة (بعد وسم </script> الأخير). لا تحذف شيئاً من ملفك.
+=========================================================================== -->
+<style>
+  @media print {
+    #printableDocument { break-inside: auto !important; page-break-inside: auto !important; }
+    #coverageTablesContainer > div { break-inside: avoid; page-break-inside: avoid; }
+  }
+</style>
+<script>
+(function () {
+  const E = id => document.getElementById(id);
+  const DAY = () => E('selectedDay').value;
+  const isBusy = c => !!c && c.trim() !== '' && !c.includes('اجتماع') && !c.includes('التمهن');
+  const absOf = n => absences.find(a => a.name === n);
+  const endOf = a => a.endPeriod || 7;
+  const absLabel = a => { const e = endOf(a); return (a.reason || 'غياب') + ((a.startPeriod === 1 && e === 7) ? '' : ` (ح${a.startPeriod}${e > a.startPeriod ? '–ح' + e : ''})`); };
+
+  /*LOGIC_START*/
+  // الصف الذي يدرّسه المعلم فعلياً في حصة معينة (بعد احتساب التبديلات والتأمين الحالية)
+  function slotClass(t, day, p, skipId) {
+    let c = (t.periods[day] || [])[p - 1] || '';
+    const mine = assignments.filter(a => a.assignedTeacher === t.name);
+    if (mine.some(a => a.isSwap && a.originalFromPeriod === p && a.swapToPeriod !== p)) c = '';
+    const into = mine.find(a => a.isSwap && a.swapToPeriod === p && a.originalFromPeriod !== p);
+    if (into) c = into.className;
+    const cov = mine.find(a => !a.isSwap && a.period === p && a.id !== skipId);
+    if (cov) c = cov.className;
+    return c;
+  }
+
+  // إيجاد تبديل للمعلم البديل S المشغول في الحصة p:
+  // حصته (D) تنتقل إلى حصة q يكون فيها فارغاً، والمعلم T الذي يدرّس نفس الصف D في q (وفارغ في p) يأخذ الحصة p
+  function findSwapOption(S, p, day) {
+    const D = slotClass(S, day, p);
+    if (!schoolClasses.includes(D)) return null;
+    let best = null;
+    for (let q = 1; q <= 7; q++) {
+      if (q === p || slotClass(S, day, q) !== '') continue;
+      const T = teachers.find(t => t.name !== S.name && !absOf(t.name) && slotClass(t, day, q) === D);
+      if (!T || slotClass(T, day, p) !== '') continue;
+      const dist = Math.abs(q - p);
+      if (!best || dist < best.dist) best = { q, T, D, dist };
+    }
+    return best;
+  }
+
+  function addSwapRows(k, S, sw) {
+    const base = { absentTeacher: k.absentTeacher, isSwap: true, isManual: false, conflict: false, conflictMsg: '', isPartnerRow: true, linkedTaskId: k.id, className: sw.D,
+                   reason: `تبديل لتأمين حصة ${k.absentTeacher} (${k.reason})` };
+    assignments.push(
+      { ...base, id: 'sw1_' + k.id, dept: S.dept, period: k.period, assignedTeacher: S.name, originalFromPeriod: k.period, swapToPeriod: sw.q },
+      { ...base, id: 'sw2_' + k.id, dept: sw.T.dept, period: sw.q, assignedTeacher: sw.T.name, originalFromPeriod: sw.q, swapToPeriod: k.period });
+  }
+
+  // إسناد بديل لحصة غائب؛ إن كان مشغولاً يُنشأ التبديل تلقائياً
+  function applySub(k, name, sw) {
+    assignments = assignments.filter(a => a.linkedTaskId !== k.id);
+    k.assignedTeacher = ''; k.isSwap = false;
+    const t = teachers.find(x => x.name === name);
+    if (t) {
+      if (!sw && isBusy(slotClass(t, DAY(), k.period))) sw = findSwapOption(t, k.period, DAY());
+      if (sw) addSwapRows(k, t, sw);
+    }
+    k.assignedTeacher = name || '';
+  }
+
+  // أفضل بديل: فارغ من نفس القسم أولاً، وإن لم يوجد فمشغول يمكن تبديله
+  function bestCandidate(k, day) {
+    const pool = teachers.filter(t => !absOf(t.name)).map(t => ({ t, cls: slotClass(t, day, k.period), same: t.dept === k.dept, wl: getWeeklyLoad(t), dl: getDailyLoad(t, day) }));
+    const sorter = (a, b) => (b.same - a.same) || ((a.wl >= 19) - (b.wl >= 19)) || (a.dl - b.dl) || (a.wl - b.wl);
+    const free = pool.filter(e => !isBusy(e.cls)).sort(sorter);
+    if (free.length) return { teacher: free[0].t };
+    for (const e of pool.filter(e => isBusy(e.cls)).sort(sorter)) {
+      const sw = findSwapOption(e.t, k.period, day);
+      if (sw) return { teacher: e.t, sw };
+    }
+    return null;
+  }
+  /*LOGIC_END*/
+
+  window.runAutoAssignment = function () {
+    updateDateText();
+    const day = DAY();
+    absences.forEach(a => a.endPeriod = endOf(a));
+    const picked = {};
+    assignments.forEach(a => { if (a.userPicked) picked[a.id] = a.assignedTeacher; });
+    assignments = assignments.filter(a => a.isManual);
+    const tasks = [];
+    absences.forEach(ab => {
+      const t = teachers.find(x => x.name === ab.name); if (!t) return;
+      (t.periods[day] || []).forEach((cls, i) => {
+        const p = i + 1;
+        if (p >= ab.startPeriod && p <= endOf(ab) && isBusy(cls)) {
+          const k = { id: 'slot_' + ab.name + '_' + p, absentTeacher: ab.name, dept: t.dept, period: p, className: cls, assignedTeacher: '', originalFromPeriod: p, swapToPeriod: p,
+                      isSwap: false, isManual: false, reason: absLabel(ab), conflict: false, conflictMsg: '', isPartnerRow: false, linkedTaskId: null };
+          tasks.push(k); assignments.push(k);
+        }
+      });
+    });
+    tasks.forEach(k => { if (k.id in picked && !absOf(picked[k.id])) { k.userPicked = true; applySub(k, picked[k.id]); } });
+    tasks.forEach(k => { if (k.userPicked) return; const c = bestCandidate(k, day); if (c) applySub(k, c.teacher.name, c.sw); });
+    updateGlobalConflictAlert(); renderDocumentTables(); renderDailyMasterTable();
+  };
+
+  window.handleManualChange = function (id, name) {
+    const k = assignments.find(a => a.id === id); if (!k) return;
+    k.userPicked = true; applySub(k, name);
+    updateGlobalConflictAlert(); renderDocumentTables();
+  };
+
+  // ---------- استمارة تأمين الحصص ----------
+  const PN = ["الأولى", "الثانية", "الثالثة", "الرابعة", "الخامسة", "السادسة", "السابعة"];
+  function subCell(k, day) {
+    const free = [], busy = [];
+    teachers.forEach(t => {
+      if (absOf(t.name)) return;
+      const o = `<option value="${t.name}" ${t.name === k.assignedTeacher ? 'selected' : ''}>${t.name} (${t.dept})</option>`;
+      (isBusy(slotClass(t, day, k.period, k.id)) ? busy : free).push(o);
+    });
+    const sw = assignments.filter(a => a.linkedTaskId === k.id && a.isPartnerRow);
+    const note = sw.length === 2 ? `<div class="text-[10px] text-blue-700 font-bold">🔄 حصة (${sw[0].className}) من ح${sw[0].originalFromPeriod} إلى ح${sw[0].swapToPeriod} مع ${sw[1].assignedTeacher}</div>` : '';
+    return `<td class="border border-slate-900 py-1 px-1 align-top ${k.conflict ? 'bg-rose-100/70 border-rose-500' : 'bg-white'}">
+      <div class="no-print space-y-1">
+        <select onchange="handleManualChange('${k.id}',this.value)" class="w-full text-[11px] font-bold p-1 border rounded ${k.conflict ? 'border-rose-500 bg-rose-50 text-rose-900 ring-2 ring-rose-400' : 'border-slate-300 bg-white text-slate-800'}">
+          <option value="">-- اختر بديلاً --</option>
+          <optgroup label="🟢 فراغ في هذه الحصة">${free.join('')}</optgroup>
+          <optgroup label="🟡 مشغول (تبديل تلقائي)">${busy.join('')}</optgroup>
+        </select>
+        ${k.conflict ? `<div class="text-[10px] text-rose-700 font-bold leading-tight">⚠️ ${k.conflictMsg}</div>` : ''}${note}
+      </div>
+      <div class="hidden print:block text-center font-extrabold text-xs text-slate-900 py-1">${k.assignedTeacher || '..................'}</div></td>`;
+  }
+
+  window.renderCoverageTables = function () {
+    const box = E('coverageTablesContainer'), day = DAY(), date = E('selectedDate').value || '---';
+    E('coverageFormContainer').classList.toggle('print:hidden', !absences.length);
+    if (!absences.length) {
+      box.innerHTML = '<div class="border border-slate-900 py-6 text-center text-slate-400 font-bold text-xs bg-slate-50 rounded-lg">لا يوجد معلمون غائبون مسجلون لتأمين حصصهم اليوم.</div>';
+      return;
+    }
+    box.innerHTML = '';
+    absences.forEach(ab => {
+      const t = teachers.find(x => x.name === ab.name); if (!t) return;
+      const cls = t.periods[day] || Array(7).fill('');
+      let h = '', c = '', s = '', g = '';
+      cls.forEach((oc, i) => {
+        const p = i + 1, on = p >= ab.startPeriod && p <= endOf(ab) && isBusy(oc);
+        const k = assignments.find(a => a.absentTeacher === ab.name && a.period === p && !a.isPartnerRow);
+        h += `<th class="border border-slate-900 py-1 px-1 bg-slate-100 font-bold w-[12%] text-center text-xs">${PN[i]}</th>`;
+        c += `<td class="border border-slate-900 py-2 px-1 font-extrabold text-slate-900 text-center text-xs ${on ? 'bg-amber-50/50' : ''}">${oc || '—'}</td>`;
+        s += (on && k) ? subCell(k, day) : '<td class="border border-slate-900 py-1 px-1 text-center text-slate-300 text-xs bg-slate-50/30">—</td>';
+        g += '<td class="border border-slate-900 py-2 px-1"></td>';
+      });
+      const card = document.createElement('div');
+      card.className = 'border-2 border-slate-900 rounded-lg overflow-hidden bg-white shadow-sm';
+      card.innerHTML = `
+        <div class="grid grid-cols-3 border-b-2 border-slate-900 bg-slate-100 text-xs md:text-sm font-bold text-slate-900 text-center py-1.5 divide-x-2 divide-slate-900 divide-x-reverse">
+          <div>اليوم: <span class="font-normal mr-1 text-blue-900 font-bold">${day}</span></div>
+          <div>التاريخ: <span class="font-normal mr-1 text-blue-900 font-bold">${date}</span></div>
+          <div>المعلم الغائب: <span class="font-black mr-1 text-rose-900 text-sm">${ab.name}</span> <span class="text-[11px] font-normal text-slate-600">(${absLabel(ab)})</span></div>
+        </div>
+        <div class="overflow-x-auto"><table class="w-full border-collapse text-center"><tbody>
+          <tr class="border-b border-slate-900"><th class="border-l-2 border-slate-900 py-1 px-2 bg-slate-200 font-black text-xs w-28">الحصة</th>${h}</tr>
+          <tr class="border-b border-slate-900"><th class="border-l-2 border-slate-900 py-1.5 px-2 bg-slate-100 font-black text-xs text-slate-800">الصف</th>${c}</tr>
+          <tr class="border-b border-slate-900"><th class="border-l-2 border-slate-900 py-2 px-2 bg-slate-100 font-black text-xs text-blue-900">المعلم البديل</th>${s}</tr>
+          <tr><th class="border-l-2 border-slate-900 py-2 px-2 bg-slate-100 font-black text-xs text-slate-600">التوقيع</th>${g}</tr>
+        </tbody></table></div>`;
+      box.appendChild(card);
+    });
+  };
+
+  // ---------- استمارة تبديل الحصص (مع عمود المعلم الغائب / السبب) ----------
+  window.renderSwapsTable = function () {
+    const tb = E('swapsTableBody'), rows = assignments.filter(a => a.isSwap && a.originalFromPeriod !== a.swapToPeriod);
+    E('swapFormContainer').classList.toggle('print:hidden', !rows.length);
+    E('formsDivider').classList.toggle('print:hidden', !rows.length);
+    if (!rows.length) {
+      tb.innerHTML = '<tr><td colspan="7" class="border border-slate-900 py-3 text-slate-400 font-bold text-xs">لا توجد حصص متبادلة لهذا اليوم (لا يوجد تبديل مسجل).</td></tr>';
+      return;
+    }
+    const btn = (fn, id, txt) => `<button onclick="${fn}('${id}')" class="text-rose-600 hover:text-rose-800 font-bold underline">${txt}</button>`;
+    tb.innerHTML = rows.map((k, i) => `
+      <tr class="${k.conflict ? 'bg-rose-50' : (i % 2 ? 'bg-slate-50/60' : 'bg-white')}">
+        <td class="border border-slate-900 py-1.5 px-2 font-bold text-slate-900 text-xs">${k.className}</td>
+        <td class="border border-slate-900 py-1.5 px-3 font-extrabold text-slate-900 text-xs">${k.assignedTeacher}</td>
+        <td class="border border-slate-900 py-1.5 px-2 font-black text-sm text-blue-900">${k.originalFromPeriod}</td>
+        <td class="border border-slate-900 py-1.5 px-2 font-black text-sm text-emerald-900">${k.swapToPeriod}</td>
+        <td class="border border-slate-900 py-1.5 px-2 text-[11px] font-bold text-slate-800">${k.absentTeacher === 'طلب يدوي' ? '' : 'المعلم الغائب: ' + k.absentTeacher + ' — '}${k.reason || ''}</td>
+        <td class="border border-slate-900 py-1.5 px-2"></td>
+        <td class="no-print border border-slate-900 py-1 px-2 text-[11px]">${k.isPartnerRow ? btn('cancelTwoWaySwap', k.linkedTaskId, 'إلغاء التبديل') : (k.isManual ? btn('deleteAssignment', k.id, 'حذف') : '')}</td>
+      </tr>`).join('');
+  };
+
+  // ---------- لوحة المقارنة قبل/بعد ----------
+  window.renderComparisonSection = function () {
+    const box = E('comparisonCardsGrid'), day = DAY();
+    const names = new Set(absences.map(a => a.name));
+    assignments.forEach(a => { if (a.assignedTeacher) names.add(a.assignedTeacher); });
+    if (!names.size) {
+      box.innerHTML = '<div class="text-center py-6 text-slate-400 font-bold text-sm bg-slate-50 border border-dashed border-slate-300 rounded-xl">لا توجد تعديلات أو غيابات مسجلة حتى الآن لمقارنة الجداول.</div>';
+      return;
+    }
+    const badge = (col, txt) => `<span class="bg-${col}-100 text-${col}-800 px-2 py-0.5 rounded text-[11px] font-bold">${txt}</span>`;
+    const cell = (i, o) => `<div class="border rounded p-1.5 ${o.c}" title="${o.n || ''}"><div class="text-[10px] opacity-80">ح${i + 1}</div><div class="truncate text-xs">${o.v && o.v.trim() ? o.v : 'فراغ'}</div></div>`;
+    const sorted = [...assignments].sort((a, b) => (b.isSwap ? 1 : 0) - (a.isSwap ? 1 : 0));
+    box.innerHTML = [...names].map(n => {
+      const t = teachers.find(x => x.name === n); if (!t) return '';
+      const orig = t.periods[day] || Array(7).fill('');
+      const after = orig.map(x => ({ v: x, c: x && x.trim() ? 'bg-slate-100 text-slate-800 border-slate-300 font-bold' : 'bg-white text-slate-400 border-slate-200' }));
+      const notes = [], ab = absOf(n);
+      if (ab) {
+        for (let i = ab.startPeriod - 1; i < endOf(ab); i++) if (orig[i] && orig[i].trim()) after[i] = { v: orig[i], c: 'bg-rose-100 text-rose-800 line-through font-bold border-rose-300', n: 'غياب' };
+        notes.push(badge('rose', absLabel(ab)));
+      }
+      sorted.forEach(k => {
+        if (k.assignedTeacher !== n) return;
+        if (k.isSwap) {
+          if (k.originalFromPeriod === k.swapToPeriod) return;
+          after[k.swapToPeriod - 1] = { v: k.className, c: 'bg-blue-600 text-white font-extrabold border-blue-700 shadow-sm', n: 'تبديل من ح' + k.originalFromPeriod };
+          after[k.originalFromPeriod - 1] = { v: 'فراغ', c: 'bg-indigo-50 text-indigo-700 font-bold border-indigo-200', n: 'تبديل إلى ح' + k.swapToPeriod };
+          notes.push(badge('blue', `تبديل (${k.className}) من ح${k.originalFromPeriod} إلى ح${k.swapToPeriod}`));
+        } else {
+          after[k.period - 1] = { v: k.className, c: 'bg-emerald-600 text-white font-extrabold border-emerald-700 shadow-sm', n: 'تأمين مكان ' + k.absentTeacher };
+          notes.push(badge('emerald', `تأمين صف (${k.className}) بدل ${k.absentTeacher}`));
+        }
+      });
+      return `<div class="bg-slate-50 border border-slate-300 rounded-xl p-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 mb-3">
+          <div class="flex items-center gap-2"><span class="text-base font-extrabold text-slate-800">${t.name}</span>
+            <span class="text-xs text-slate-500 font-semibold">(${t.dept} - نصابه الكلي: ${getWeeklyLoad(t)} حصة)</span></div>
+          <div class="flex flex-wrap gap-1.5">${notes.join(' ')}</div></div>
+        <div class="space-y-2 text-xs">
+          <div><div class="font-bold text-slate-500 mb-1 text-[11px]">⚪ الجدول الأصلي (قبل التعديل):</div>
+            <div class="grid grid-cols-7 gap-1 text-center">${orig.map((p, i) => cell(i, { v: p, c: p && p.trim() ? 'bg-slate-200/80 text-slate-800 border-slate-300 font-bold' : 'bg-white text-slate-400 border-slate-200' })).join('')}</div></div>
+          <div class="pt-1"><div class="font-bold text-blue-900 mb-1 text-[11px]">🔵 الجدول الفعلي اليوم (بعد التعديل والتأمين):</div>
+            <div class="grid grid-cols-7 gap-1 text-center">${after.map((o, i) => cell(i, o)).join('')}</div></div>
+        </div></div>`;
+    }).join('');
+  };
+
+  // ---------- تحديد الغياب / الورشة / سبب آخر ----------
+  window.renderAbsenceBadges = function () {
+    const h = absences.map(a => `<div class="flex items-center gap-2 bg-rose-50 border border-rose-300 text-rose-800 text-xs px-3 py-1.5 rounded-lg font-semibold shadow-sm"><span><b>${a.name}</b> — ${absLabel(a)}</span><button onclick="removeAbsence('${a.name}')" class="text-rose-600 hover:text-rose-900 font-extrabold text-sm ml-1">×</button></div>`).join('');
+    ['absenceBadges', 'pickBadges'].forEach(i => { const el = E(i); if (el) el.innerHTML = h; });
+  };
+
+  window.toggleWorkshopPeriod = v => ['startPeriodDiv', 'endPeriodDiv', 'reasonDiv'].forEach(i => E(i).classList.toggle('hidden', v === 'full'));
+
+  window.addAbsenceRecord = function () {
+    const type = E('absenceTypeSelect').value, name = E('absentTeacherSelect').value;
+    const s = type === 'full' ? 1 : +E('startPeriodSelect').value;
+    let e = type === 'full' ? 7 : +E('endPeriodSelect').value; if (e < s) e = s;
+    const reason = type === 'full' ? 'غياب كامل' : (E('absReasonInput').value.trim() || (type === 'partial' ? 'ورشة عمل' : 'مهمة / اجتماع'));
+    absences = absences.filter(a => a.name !== name);
+    absences.push({ name, type, startPeriod: s, endPeriod: e, reason });
+    renderAbsenceBadges(); runAutoAssignment();
+  };
+
+  window.togglePick = function (ti, on) {
+    const n = teachers[ti].name;
+    if (on) absences.push({ name: n, type: 'full', startPeriod: 1, endPeriod: 7, reason: 'غياب كامل' });
+    else absences = absences.filter(a => a.name !== n);
+    renderAbsenceBadges(); runAutoAssignment();
+  };
+
+  window.editPick = function (ti, f, v) {
+    const a = absOf(teachers[ti].name); if (!a) return;
+    if (f === 'full') { a.startPeriod = 1; a.endPeriod = 7; a.reason = 'غياب كامل'; }
+    else if (f === 'reason') a.reason = v.trim() || 'غياب';
+    else { a[f] = +v; if (a.endPeriod < a.startPeriod) { if (f === 'startPeriod') a.endPeriod = a.startPeriod; else a.startPeriod = a.endPeriod; } }
+    a.type = (a.startPeriod === 1 && a.endPeriod === 7) ? 'full' : 'partial';
+    renderAbsenceBadges(); runAutoAssignment();
+  };
+
+  window.clearAllPicks = function () {
+    if (!absences.length || confirm('مسح جميع التحديدات والتبديلات لهذا اليوم؟')) {
+      absences = []; assignments = []; renderAbsenceBadges(); runAutoAssignment();
+    }
+  };
+
+  // ---------- جدول اليوم العام مع خانات التحديد ----------
+  const chip = p => {
+    const c = p.includes('6ب') ? 'bg-amber-100 text-amber-900 border-amber-300' : p.includes('1ع') ? 'bg-blue-100 text-blue-900 border-blue-300'
+      : p.includes('2ع') ? 'bg-indigo-100 text-indigo-900 border-indigo-300' : p.includes('3ع') ? 'bg-purple-100 text-purple-900 border-purple-300' : 'bg-slate-100 text-slate-800 border-slate-300';
+    return `<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${c}">${p}</span>`;
+  };
+  const opts = sel => [1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === sel ? 'selected' : ''}>${n}</option>`).join('');
+
+  window.renderDailyMasterTable = function () {
+    const tb = E('dailyMasterTableBody'), day = DAY();
+    const q = E('teacherSearchInput').value.trim().toLowerCase(), dept = E('deptFilterSelect').value, fp = E('periodFreeFilterSelect').value;
+    const list = teachers.filter(t => {
+      if (q && !t.name.toLowerCase().includes(q)) return false;
+      if (dept && t.dept !== dept) return false;
+      if (fp) { const s = (t.periods[day] || [])[fp - 1]; if (s && s.trim()) return false; }
+      return true;
+    });
+    if (!list.length) { tb.innerHTML = '<tr><td colspan="13" class="py-6 text-center text-slate-400 font-bold text-xs">لا يوجد معلمون يطابقون معايير البحث والفلترة في هذا اليوم.</td></tr>'; return; }
+    tb.innerHTML = list.map((t, i) => {
+      const ti = teachers.indexOf(t), ps = t.periods[day] || Array(7).fill(''), ab = absOf(t.name);
+      const cells = ps.map((p, j) => {
+        const on = ab && j + 1 >= ab.startPeriod && j + 1 <= endOf(ab);
+        return `<td class="py-1.5 px-1 border-l border-slate-200 ${on ? 'bg-rose-200/70' : ''}">${p && p.trim() ? chip(p) : '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200">فراغ</span>'}</td>`;
+      }).join('');
+      const detail = `switchTab('lookup');document.getElementById('lookupTeacherSelect').value='${t.name}';renderLookupTeacherSchedule();`;
+      const editor = ab ? `<tr class="bg-rose-50 border-b-2 border-rose-300"><td colspan="13" class="p-2 text-right">
+        <div class="flex flex-wrap items-center gap-2 text-xs font-bold text-rose-900">
+          <span>⚙️ ${t.name}:</span>
+          <label>من حصة</label><select onchange="editPick(${ti},'startPeriod',this.value)" class="bg-white border border-rose-300 rounded p-1">${opts(ab.startPeriod)}</select>
+          <label>إلى حصة</label><select onchange="editPick(${ti},'endPeriod',this.value)" class="bg-white border border-rose-300 rounded p-1">${opts(endOf(ab))}</select>
+          <label>السبب:</label><input value="${ab.reason || ''}" list="absReasons" onchange="editPick(${ti},'reason',this.value)" class="bg-white border border-rose-300 rounded p-1 w-56" placeholder="غياب / ورشة / اجتماع مع الإدارة...">
+          <button onclick="editPick(${ti},'full')" class="bg-rose-600 hover:bg-rose-700 text-white px-2 py-1 rounded">كامل اليوم</button>
+        </div></td></tr>` : '';
+      return `<tr class="${ab ? 'bg-rose-50' : (i % 2 ? 'bg-slate-50/60' : 'bg-white')} hover:bg-blue-50/40">
+        <td class="py-2 px-1 border-l border-slate-200"><input type="checkbox" ${ab ? 'checked' : ''} onchange="togglePick(${ti},this.checked)" class="w-4 h-4 accent-rose-600 cursor-pointer"></td>
+        <td class="py-2 px-1 text-slate-400 font-bold border-l border-slate-200">${i + 1}</td>
+        <td class="py-2 px-3 font-extrabold text-slate-900 text-right border-l border-slate-200">${t.name}</td>
+        <td class="py-2 px-2 text-slate-600 font-semibold border-l border-slate-200 text-xs">${t.dept}</td>
+        <td class="py-2 px-1 font-black text-xs border-l border-slate-200 text-blue-900">${getDailyLoad(t, day)}</td>${cells}
+        <td class="py-1 px-1"><button onclick="${detail}" class="text-[10px] bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 font-bold px-1.5 py-1 rounded transition border border-slate-200">تفاصيل</button></td>
+      </tr>${editor}`;
+    }).join('');
+  };
+
+  // ---------- حفظ حالة كل يوم عند التنقل بين الأيام ----------
+  const dayStore = {};
+  let lastDay = DAY();
+  const origDayChange = window.handleDayChange;
+  window.handleDayChange = function () {
+    dayStore[lastDay] = { absences, assignments: assignments.filter(a => a.isManual) };
+    lastDay = DAY();
+    const s = dayStore[lastDay] || { absences: [], assignments: [] };
+    absences = s.absences; assignments = s.assignments;
+    renderAbsenceBadges();
+    origDayChange();
+  };
+
+  // ---------- الطباعة / حفظ PDF ----------
+  window.printPDF = function () {
+    const old = document.title;
+    document.title = `استمارة تبديل وتأمين الحصص - ${DAY()} ${E('selectedDate').value || ''}`;
+    window.print();
+    setTimeout(() => { document.title = old; }, 600);
+  };
+
+  // ---------- تهيئة الواجهة ----------
+  function init() {
+    // تبويب الغياب القديم: إضافة «سبب آخر» ونطاق الحصص
+    E('absenceTypeSelect').insertAdjacentHTML('beforeend', '<option value="other">سبب آخر (اجتماع مع الإدارة...)</option>');
+    E('startPeriodSelect').innerHTML = [1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === 4 ? 'selected' : ''}>الحصة ${n}</option>`).join('');
+    const lab = 'block text-xs font-medium text-slate-600 mb-1', sel = 'w-full bg-white border border-slate-300 rounded-lg p-2 text-xs md:text-sm font-semibold';
+    E('startPeriodDiv').insertAdjacentHTML('afterend', `
+      <div id="endPeriodDiv" class="w-36 hidden"><label class="${lab}">إلى الحصة:</label>
+        <select id="endPeriodSelect" class="${sel}">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === 7 ? 'selected' : ''}>الحصة ${n}</option>`).join('')}</select></div>
+      <div id="reasonDiv" class="w-56 hidden"><label class="${lab}">السبب:</label>
+        <input id="absReasonInput" list="absReasons" placeholder="اجتماع مع الإدارة..." class="${sel}"></div>
+      <datalist id="absReasons"><option value="غياب"></option><option value="ورشة عمل"></option><option value="اجتماع مع الإدارة"></option><option value="زيارة صفية"></option><option value="مهمة إدارية / لجان"></option><option value="ظرف طارئ"></option></datalist>`);
+
+    // التبويب الأول: جدول اليوم + التحديد
+    const first = E('tabDailyMasterBtn');
+    first.parentElement.prepend(first);
+    first.innerHTML = '<span>✅</span> جدول اليوم وتحديد المعلمين';
+    E('dailyMasterSection').insertAdjacentHTML('afterbegin', `
+      <div class="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="text-sm font-extrabold text-rose-900">✅ علّم (✓) على المعلمين المطلوب تعديل جدولهم، ثم حدّد الحصص والسبب — تُؤمَّن حصصهم وتُبدَّل تلقائياً</div>
+          <div class="flex gap-2">
+            <button onclick="clearAllPicks()" class="bg-white border border-rose-300 text-rose-700 font-bold text-xs px-3 py-1.5 rounded-lg">🗑️ مسح التحديدات</button>
+            <button onclick="document.getElementById('printableDocument').scrollIntoView({behavior:'smooth'})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg">⬇️ الانتقال للاستمارة</button>
+          </div>
+        </div>
+        <div id="pickBadges" class="flex flex-wrap gap-2 min-h-[24px]"></div>
+      </div>`);
+    document.querySelector('#dailyMasterSection thead tr').insertAdjacentHTML('afterbegin', '<th class="py-2 px-1 w-10 border-l border-slate-300">تحديد</th>');
+    document.querySelector('#swapFormContainer thead tr').children[3].insertAdjacentHTML('afterend', '<th class="border border-slate-900 py-1.5 px-2 w-56">المعلم الغائب / السبب</th>');
+
+    // زر الطباعة → PDF
+    const pb = [...document.querySelectorAll('button')].find(b => b.getAttribute('onclick') === 'window.print()');
+    if (pb) { pb.setAttribute('onclick', 'printPDF()'); pb.innerHTML = '<span>🖨️</span> طباعة / حفظ PDF'; }
+
+    // ربط التاريخ باليوم تلقائياً (الأحد–الخميس)
+    const names = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
+    const syncDay = () => {
+      const d = E('selectedDate').valueAsDate;
+      if (d && d.getUTCDay() <= 4 && DAY() !== names[d.getUTCDay()]) { E('selectedDay').value = names[d.getUTCDay()]; handleDayChange(); }
+    };
+    E('selectedDate').addEventListener('change', syncDay);
+    syncDay();
+
+    switchTab('dailyMaster');
+    renderAbsenceBadges(); renderDailyMasterTable();
+  }
+
+  const prevOnload = window.onload;
+  window.onload = function () { if (prevOnload) prevOnload(); init(); };
+})();
+</script>
+
 </body>
 </html>
