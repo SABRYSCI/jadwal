@@ -13,17 +13,52 @@
     .official-font { font-family: 'Amiri', serif; }
     @media print {
       .no-print { display: none !important; }
-      body { background: white !important; padding: 0 !important; }
-      .print-area { box-shadow: none !important; border: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
-      @page { size: A4 portrait; margin: 8mm; }
+      html, body {
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
+        min-height: auto !important;
+      }
+      .print-area {
+        box-shadow: none !important;
+        border: none !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 4mm 6mm !important;
+        min-height: auto !important;
+        height: auto !important;
+        display: block !important;
+      }
+      #printableDocument {
+        min-height: auto !important;
+        height: auto !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      table, tr, td, th {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      .print-footer {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-top: 15px !important;
+        padding-top: 10px !important;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 6mm 8mm;
+      }
     }
   </style>
 </head>
 <body class="bg-slate-100 text-slate-800 p-3 md:p-6 min-h-screen">
 
-  <div class="max-w-5xl mx-auto">
+  <div class="max-w-5xl mx-auto space-y-6">
     <!-- لوحة التحكم الإدارية (تختفي عند الطباعة) -->
-    <div class="no-print bg-white rounded-2xl shadow-md p-5 md:p-6 mb-6 border border-slate-200 space-y-6">
+    <div class="no-print bg-white rounded-2xl shadow-md p-5 md:p-6 border border-slate-200 space-y-5">
       
       <!-- شريط العنوان وأزرار الطباعة -->
       <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
@@ -59,23 +94,26 @@
         <div>
           <label class="block text-xs font-bold text-slate-700 mb-1">إعادة الضبط الشامل:</label>
           <button onclick="runAutoAssignment()" class="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold p-2 rounded-lg text-sm transition">
-            🔄 إعادة تهيئة الجدول وتوزيع الحصص
+            🔄 إعادة تهيئة وتحديث الجداول
           </button>
         </div>
       </div>
 
-      <!-- تبويبات التحكم: (1) تسجيل الغياب والورش | (2) التبديل والتعديل اليدوي الخاص -->
+      <!-- تبويبات التحكم: (1) تسجيل الغياب والورش | (2) التبديل والتعديل اليدوي | (3) استعراض جدول معلم لليوم -->
       <div class="border-t border-slate-100 pt-2">
-        <div class="flex border-b border-slate-200 text-sm font-bold gap-4 mb-4">
-          <button id="tabAbsenceBtn" onclick="switchTab('absence')" class="pb-2.5 border-b-2 border-blue-600 text-blue-600 flex items-center gap-1.5">
+        <div class="flex flex-wrap border-b border-slate-200 text-sm font-bold gap-2 md:gap-4 mb-4">
+          <button id="tabAbsenceBtn" onclick="switchTab('absence')" class="pb-2.5 border-b-2 border-blue-600 text-blue-600 flex items-center gap-1.5 transition">
             <span>👥</span> تأمين حصص الغياب والورش
           </button>
-          <button id="tabManualBtn" onclick="switchTab('manual')" class="pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5">
-            <span>🔄</span> تبديل / تعديل حصة يدوي (زيارة صفية، نشاط، تبادل)
+          <button id="tabManualBtn" onclick="switchTab('manual')" class="pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition">
+            <span>🔄</span> تبديل / تعديل حصة يدوي
+          </button>
+          <button id="tabLookupBtn" onclick="switchTab('lookup')" class="pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition">
+            <span>🔍</span> استعراض جدول معلم محدد لليوم
           </button>
         </div>
 
-        <!-- قسم (1): تسجيل الغياب والورش -->
+        <!-- تبويب (1): تسجيل الغياب والورش -->
         <div id="absenceSection">
           <div class="flex flex-wrap gap-3 items-end bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div class="flex-1 min-w-[220px]">
@@ -109,7 +147,7 @@
           <div id="absenceBadges" class="flex flex-wrap gap-2 mt-3 min-h-[28px]"></div>
         </div>
 
-        <!-- قسم (2): التبديل والتعديل اليدوي المباشر مع كتابة السبب -->
+        <!-- تبويب (2): التبديل والتعديل اليدوي المباشر مع كتابة السبب -->
         <div id="manualSwapSection" class="hidden">
           <div class="bg-indigo-50/60 p-4 rounded-xl border border-indigo-200 space-y-4">
             <div class="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
@@ -171,16 +209,36 @@
           </div>
         </div>
 
+        <!-- تبويب (3): استعراض جدول معلم محدد لليوم المختار -->
+        <div id="lookupSection" class="hidden">
+          <div class="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex-1 min-w-[240px]">
+                <label class="block text-xs font-bold text-amber-900 mb-1">اختر المعلم لعرض جدوله بالتفصيل في هذا اليوم:</label>
+                <select id="lookupTeacherSelect" onchange="renderLookupTeacherSchedule()" class="w-full bg-white border border-amber-300 rounded-lg p-2 text-xs md:text-sm font-semibold focus:ring-2 focus:ring-amber-500">
+                  <!-- يعبأ تلقائياً -->
+                </select>
+              </div>
+              <div id="lookupTeacherMeta" class="text-xs font-bold text-amber-800 bg-white px-3 py-2 rounded-lg border border-amber-200 shadow-sm">
+                <!-- بيانات المعلم والنصاب -->
+              </div>
+            </div>
+            <div id="lookupTeacherScheduleCard">
+              <!-- تفاصيل الحصص السبع لليوم المختار -->
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
     <!-- شريط التنبيه العام للتعارضات -->
-    <div id="conflictAlertBox" class="no-print hidden mb-4 p-4 bg-rose-50 border-r-4 border-rose-600 rounded-xl text-rose-800 text-xs md:text-sm font-bold shadow-sm transition">
+    <div id="conflictAlertBox" class="no-print hidden p-4 bg-rose-50 border-r-4 border-rose-600 rounded-xl text-rose-800 text-xs md:text-sm font-bold shadow-sm transition">
       <!-- تفاصيل التعارض تظهر هنا -->
     </div>
 
     <!-- استمارة تبديل الحصص الرسمية (المطابقة للورقة المرفقة بالكامل) -->
-    <div id="printableDocument" class="print-area bg-white shadow-xl rounded-xl p-6 md:p-8 border border-slate-300 max-w-[210mm] mx-auto min-h-[297mm] flex flex-col justify-between">
+    <div id="printableDocument" class="print-area bg-white shadow-xl rounded-xl p-6 md:p-8 border border-slate-300 max-w-[210mm] mx-auto min-h-auto flex flex-col justify-between">
       <div>
         <!-- الترويسة الرسمية الذهبية -->
         <div class="border-b-2 border-slate-900 pb-2 mb-3 text-center">
@@ -221,7 +279,7 @@
       </div>
 
       <!-- التوقيعات الرسمية والختم المدرسي في أسفل الورقة -->
-      <div class="pt-5 mt-6 border-t border-slate-400">
+      <div class="print-footer pt-4 mt-6 border-t border-slate-400">
         <div class="flex justify-between items-center text-xs md:text-sm font-bold px-2 md:px-6 text-slate-800">
           <div class="text-right space-y-2">
             <div>يعتمد / المعلم الأول المشرف: .........................</div>
@@ -245,6 +303,29 @@
         </div>
       </div>
     </div>
+
+    <!-- لوحة المتابعة والمقارنة: جداول المعلمين المعنيين قبل وبعد التعديل (للشاشة فقط - لا تظهر في الطباعة) -->
+    <div id="comparisonSection" class="no-print bg-white rounded-2xl shadow-md p-5 md:p-6 border border-slate-200">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span>📊</span> متابعة جداول المعلمين المعنيين (قبل وبعد التعديل والتأمين)
+          </h2>
+          <p class="text-xs text-slate-500 mt-0.5">
+            يعرض هذا القسم تلقائياً جدول كل معلم تم تسجيل اسمه في كشف اليوم: كيف كان جدوله الأصلي وكيف أصبح بعد الغياب أو التأمين أو التبديل.
+          </p>
+        </div>
+        <div class="text-xs font-bold bg-blue-50 text-blue-800 px-3 py-1.5 rounded-lg border border-blue-200">
+          اليوم المتابع: <span id="comparisonDayText" class="text-blue-900 font-extrabold">الإثنين</span>
+        </div>
+      </div>
+
+      <!-- شبكة بطاقات المقارنة للمعلمين المعنيين -->
+      <div id="comparisonCardsGrid" class="space-y-4">
+        <!-- تتولد بطاقات المقارنة برمجياً -->
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -253,7 +334,6 @@
     let teachers = JSON.parse(JSON.stringify(teachersDatabase));
     let absences = []; 
     let assignments = []; 
-    let manualSwaps = []; // قائمة التبديلات اليدوية المستقلة: { id, teacherName, fromPeriod, toPeriod, className, reason, isSwap, conflict, conflictMsg }
 
     function getWeeklyLoad(teacher) {
       let count = 0;
@@ -286,38 +366,51 @@
       updateDateText();
       populateTeacherDropdowns();
       onManualTeacherChange();
+      renderLookupTeacherSchedule();
       runAutoAssignment();
     };
 
     function handleDayChange() {
       updateDateText();
       onManualTeacherChange();
+      renderLookupTeacherSchedule();
       runAutoAssignment();
     }
 
     function updateDateText() {
       const d = document.getElementById('selectedDate').value;
+      const currentDay = document.getElementById('selectedDay').value;
       document.getElementById('docDateText').textContent = d || '---';
-      document.getElementById('docDayText').textContent = document.getElementById('selectedDay').value;
+      document.getElementById('docDayText').textContent = currentDay;
+      document.getElementById('comparisonDayText').textContent = currentDay;
     }
 
     function switchTab(tab) {
       const absBtn = document.getElementById('tabAbsenceBtn');
       const manBtn = document.getElementById('tabManualBtn');
+      const lookBtn = document.getElementById('tabLookupBtn');
       const absSec = document.getElementById('absenceSection');
       const manSec = document.getElementById('manualSwapSection');
+      const lookSec = document.getElementById('lookupSection');
+
+      absBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition";
+      manBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition";
+      lookBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition";
+      absSec.classList.add('hidden');
+      manSec.classList.add('hidden');
+      lookSec.classList.add('hidden');
 
       if (tab === 'absence') {
-        absBtn.className = "pb-2.5 border-b-2 border-blue-600 text-blue-600 flex items-center gap-1.5";
-        manBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5";
+        absBtn.className = "pb-2.5 border-b-2 border-blue-600 text-blue-600 flex items-center gap-1.5 transition";
         absSec.classList.remove('hidden');
-        manSec.classList.add('hidden');
-      } else {
-        manBtn.className = "pb-2.5 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-1.5";
-        absBtn.className = "pb-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-1.5";
+      } else if (tab === 'manual') {
+        manBtn.className = "pb-2.5 border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-1.5 transition";
         manSec.classList.remove('hidden');
-        absSec.classList.add('hidden');
         onManualTeacherChange();
+      } else if (tab === 'lookup') {
+        lookBtn.className = "pb-2.5 border-b-2 border-amber-600 text-amber-600 flex items-center gap-1.5 transition";
+        lookSec.classList.remove('hidden');
+        renderLookupTeacherSchedule();
       }
     }
 
@@ -328,8 +421,10 @@
     function populateTeacherDropdowns() {
       const selectAbs = document.getElementById('absentTeacherSelect');
       const selectMan = document.getElementById('manualTeacherSelect');
+      const selectLook = document.getElementById('lookupTeacherSelect');
       selectAbs.innerHTML = '';
       selectMan.innerHTML = '';
+      selectLook.innerHTML = '';
 
       teachers.forEach(t => {
         const optA = document.createElement('option');
@@ -341,7 +436,51 @@
         optM.value = t.name;
         optM.textContent = `${t.name} (${t.dept})`;
         selectMan.appendChild(optM);
+
+        const optL = document.createElement('option');
+        optL.value = t.name;
+        optL.textContent = `${t.name} (${t.dept})`;
+        selectLook.appendChild(optL);
       });
+    }
+
+    // استعراض جدول معلم محدد لليوم المختار
+    function renderLookupTeacherSchedule() {
+      const select = document.getElementById('lookupTeacherSelect');
+      const teacherName = select.value || (teachers[0] ? teachers[0].name : "");
+      const currentDay = document.getElementById('selectedDay').value;
+      const teacher = teachers.find(t => t.name === teacherName);
+      if (!teacher) return;
+
+      const metaDiv = document.getElementById('lookupTeacherMeta');
+      const cardDiv = document.getElementById('lookupTeacherScheduleCard');
+      const periodsToday = teacher.periods[currentDay] || ["","","","","","",""];
+      const dailyCount = getDailyLoad(teacher, currentDay);
+      const weeklyCount = getWeeklyLoad(teacher);
+
+      metaDiv.innerHTML = `
+        <span>القسم: ${teacher.dept}</span> | 
+        <span>حصص اليوم: ${dailyCount} حصص</span> | 
+        <span>نصاب الأسبوع: ${weeklyCount} حصة</span>
+      `;
+
+      cardDiv.innerHTML = `
+        <div class="grid grid-cols-7 gap-1.5 text-center mt-2">
+          ${periodsToday.map((p, idx) => {
+            const pNum = idx + 1;
+            const isFree = !p || p.trim() === "";
+            let bgCol = isFree ? "bg-emerald-50 text-emerald-800 border-emerald-300" : "bg-white text-slate-800 border-slate-300 shadow-sm";
+            return `
+              <div class="border rounded-lg p-2.5 ${bgCol}">
+                <div class="text-[11px] font-bold text-slate-400 mb-0.5">الحصة ${pNum}</div>
+                <div class="font-extrabold text-sm ${isFree ? 'text-emerald-600' : 'text-blue-900'}">
+                  ${isFree ? 'فراغ' : p}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
     }
 
     function onManualTeacherChange() {
@@ -354,7 +493,6 @@
       fromSelect.innerHTML = '';
       const dayPeriods = teacher.periods[currentDay] || ["","","","","","",""];
 
-      // تعبئة الحصص التي يملكها المعلم اليوم
       dayPeriods.forEach((p, idx) => {
         const pNum = idx + 1;
         const opt = document.createElement('option');
@@ -421,7 +559,6 @@
 
       const className = (teacher.periods[currentDay] && teacher.periods[currentDay][fromPeriod - 1]) || "حصة خاصة";
 
-      // فحص التعارض الفوري في الحصة الهدف للمعلم
       const targetSlotClass = teacher.periods[currentDay] ? teacher.periods[currentDay][toPeriod - 1] : "";
       const hasConflict = targetSlotClass && targetSlotClass.trim() !== "" && !targetSlotClass.includes("اجتماع") && !targetSlotClass.includes("التمهن");
 
@@ -448,7 +585,6 @@
       updateGlobalConflictAlert();
       renderDocumentTable();
 
-      // مسح حقل السبب وإعادة التنبيه إن كان هناك تعارض
       document.getElementById('manualReasonInput').value = '';
     }
 
@@ -493,7 +629,6 @@
       updateDateText();
       const currentDay = document.getElementById('selectedDay').value;
       
-      // الاحتفاظ بالتبديلات اليدوية الخاصة
       const preservedManuals = assignments.filter(a => a.isManual);
       assignments = [];
 
@@ -537,7 +672,6 @@
         }
       });
 
-      // إعادة دمج التعديلات اليدوية
       preservedManuals.forEach(pm => assignments.push(pm));
 
       updateGlobalConflictAlert();
@@ -724,6 +858,7 @@
             </td>
           </tr>
         `;
+        renderComparisonSection();
         return;
       }
 
@@ -731,16 +866,13 @@
         const tr = document.createElement('tr');
         tr.className = task.conflict ? "bg-rose-50/70 border-rose-300" : (idx % 2 === 0 ? "bg-white" : "bg-slate-50/60");
 
-        // عمود الصف
         const tdClass = document.createElement('td');
         tdClass.className = "border border-slate-900 py-2.5 px-2 font-bold text-slate-900 text-sm align-top";
         tdClass.textContent = task.className;
 
-        // عمود اسم المعلم
         const tdTeacher = document.createElement('td');
         tdTeacher.className = "border border-slate-900 py-2 px-2 text-right align-top";
 
-        // وسم السبب إن وجد (للشاشة فقط)
         const reasonTag = task.reason ? `
           <div class="no-print inline-block bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-bold px-2 py-0.5 rounded mr-1">
             السبب: ${task.reason}
@@ -890,22 +1022,18 @@
           `;
         }
 
-        // عمود من حصة
         const tdFrom = document.createElement('td');
         tdFrom.className = "border border-slate-900 py-2.5 px-2 font-extrabold text-sm align-top";
         tdFrom.textContent = task.originalFromPeriod;
 
-        // عمود إلى حصة
         const tdTo = document.createElement('td');
         tdTo.className = "border border-slate-900 py-2.5 px-2 font-extrabold text-sm align-top";
         tdTo.textContent = task.swapToPeriod;
 
-        // عمود التوقيع
         const tdSign = document.createElement('td');
         tdSign.className = "border border-slate-900 py-2.5 px-2 text-slate-400 text-xs align-top";
         tdSign.textContent = "";
 
-        // حالة التأمين والتعارض
         const tdStatus = document.createElement('td');
         tdStatus.className = "no-print border border-slate-900 py-2 px-2 text-xs font-bold align-top";
         
@@ -935,6 +1063,157 @@
         tr.appendChild(tdStatus);
 
         tbody.appendChild(tr);
+      });
+
+      renderComparisonSection();
+    }
+
+    // بناء وعرض قسم متابعة جداول المعلمين المعنيين (قبل وبعد التعديل)
+    function renderComparisonSection() {
+      const container = document.getElementById('comparisonCardsGrid');
+      const currentDay = document.getElementById('selectedDay').value;
+      container.innerHTML = '';
+
+      // 1. حصر جميع أسماء المعلمين المعنيين بتغييرات اليوم
+      const involvedTeacherNames = new Set();
+      absences.forEach(a => involvedTeacherNames.add(a.name));
+      assignments.forEach(a => {
+        if (a.assignedTeacher && a.assignedTeacher !== "" && a.assignedTeacher !== "لم يتم تحديد بديل") {
+          involvedTeacherNames.add(a.assignedTeacher);
+        }
+      });
+
+      if (involvedTeacherNames.size === 0) {
+        container.innerHTML = `
+          <div class="text-center py-6 text-slate-400 font-bold text-sm bg-slate-50 border border-dashed border-slate-300 rounded-xl">
+            لا توجد تعديلات أو غيابات مسجلة حتى الآن لمقارنة الجداول.
+          </div>
+        `;
+        return;
+      }
+
+      // 2. إنشاء بطاقة مقارنة لكل معلم معني
+      involvedTeacherNames.forEach(teacherName => {
+        const teacher = teachers.find(t => t.name === teacherName);
+        if (!teacher) return;
+
+        const origPeriods = teacher.periods[currentDay] || ["","","","","","",""];
+        const afterPeriods = [...origPeriods];
+        const statusNotes = [];
+
+        // التحقق إن كان المعلم غائباً
+        const absInfo = absences.find(a => a.name === teacherName);
+        if (absInfo) {
+          for (let i = absInfo.startPeriod - 1; i < 7; i++) {
+            if (afterPeriods[i] && afterPeriods[i].trim() !== "") {
+              afterPeriods[i] = { type: 'absent', val: origPeriods[i], note: 'غياب / ورشة' };
+            }
+          }
+          statusNotes.push(`<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded text-[11px] font-bold">معلم غائب / ورشة</span>`);
+        }
+
+        // التحقق من الحصص المكلف بتأمينها أو تبديلها
+        assignments.forEach(task => {
+          if (task.assignedTeacher === teacherName) {
+            if (task.isSwap) {
+              // المعلم في عملية تبديل
+              const fromIdx = task.originalFromPeriod - 1;
+              const toIdx = task.swapToPeriod - 1;
+              if (task.isPartnerRow) {
+                afterPeriods[toIdx] = { type: 'swap', val: task.className, note: `تبديل من ح${task.originalFromPeriod}` };
+                afterPeriods[fromIdx] = { type: 'free_swap', val: 'فراغ', note: `تبديل إلى ح${task.swapToPeriod}` };
+                statusNotes.push(`<span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[11px] font-bold">شريك تبديل (${task.className})</span>`);
+              } else {
+                afterPeriods[toIdx] = { type: 'swap', val: task.className, note: `تأمين بتبديل (بدل ح${task.originalFromPeriod})` };
+                statusNotes.push(`<span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[11px] font-bold">تبديل وتأمين (${task.className})</span>`);
+              }
+            } else {
+              // تأمين مباشر
+              const pIdx = task.period - 1;
+              afterPeriods[pIdx] = { type: 'cover', val: task.className, note: `تأمين مكان (${task.absentTeacher})` };
+              statusNotes.push(`<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[11px] font-bold">مكلف بتأمين صف (${task.className})</span>`);
+            }
+          }
+        });
+
+        // رسم بطاقة المعلم
+        const card = document.createElement('div');
+        card.className = "bg-slate-50 border border-slate-300 rounded-xl p-4 shadow-sm";
+        card.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-base font-extrabold text-slate-800">${teacher.name}</span>
+              <span class="text-xs text-slate-500 font-semibold">(${teacher.dept} - نصابه الكلي: ${getWeeklyLoad(teacher)} حصة)</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              ${statusNotes.join(' ')}
+            </div>
+          </div>
+
+          <div class="space-y-2 text-xs">
+            <!-- الجدول الأصلي قبل التعديل -->
+            <div>
+              <div class="font-bold text-slate-500 mb-1 flex items-center gap-1.5 text-[11px]">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block"></span>
+                <span>الجدول الأصلي (قبل التعديل):</span>
+              </div>
+              <div class="grid grid-cols-7 gap-1 text-center">
+                ${origPeriods.map((p, idx) => {
+                  const pNum = idx + 1;
+                  const isFree = !p || p.trim() === "";
+                  return `
+                    <div class="border rounded p-1.5 ${isFree ? 'bg-white text-slate-400 border-slate-200' : 'bg-slate-200/80 text-slate-800 border-slate-300 font-bold'}">
+                      <div class="text-[10px] text-slate-400">ح${pNum}</div>
+                      <div class="truncate text-xs">${isFree ? 'فراغ' : p}</div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+
+            <!-- الجدول الفعلي بعد التعديل -->
+            <div class="pt-1">
+              <div class="font-bold text-blue-900 mb-1 flex items-center gap-1.5 text-[11px]">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span>
+                <span>الجدول الفعلي اليوم (بعد التعديل والتأمين):</span>
+              </div>
+              <div class="grid grid-cols-7 gap-1 text-center">
+                ${afterPeriods.map((p, idx) => {
+                  const pNum = idx + 1;
+                  let text = "";
+                  let bgClass = "bg-white text-slate-400 border-slate-200";
+                  let noteTitle = "";
+
+                  if (typeof p === 'object' && p !== null) {
+                    text = p.val;
+                    noteTitle = p.note;
+                    if (p.type === 'cover') {
+                      bgClass = "bg-emerald-600 text-white font-extrabold border-emerald-700 shadow-sm";
+                    } else if (p.type === 'swap') {
+                      bgClass = "bg-blue-600 text-white font-extrabold border-blue-700 shadow-sm";
+                    } else if (p.type === 'absent') {
+                      bgClass = "bg-rose-100 text-rose-800 line-through font-bold border-rose-300";
+                    } else if (p.type === 'free_swap') {
+                      bgClass = "bg-indigo-50 text-indigo-700 font-bold border-indigo-200";
+                    }
+                  } else {
+                    const isFree = !p || p.trim() === "";
+                    text = isFree ? 'فراغ' : p;
+                    bgClass = isFree ? 'bg-white text-slate-400 border-slate-200' : 'bg-slate-100 text-slate-800 border-slate-300 font-bold';
+                  }
+
+                  return `
+                    <div class="border rounded p-1.5 ${bgClass}" title="${noteTitle}">
+                      <div class="text-[10px] opacity-80">ح${pNum}</div>
+                      <div class="truncate text-xs">${text}</div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
       });
     }
   </script>
