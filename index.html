@@ -1636,6 +1636,7 @@
     if (!schoolClasses.includes(D)) return null;
     let best = null;
     for (let q = 1; q <= 7; q++) {
+      if (q === 7 && String(D).startsWith('6ب')) continue;   // السادس الابتدائي: 6 حصص فقط
       if (q === p || slotClass(S, day, q) !== '') continue;
       const T = teachers.find(t => t.name !== S.name && !absOf(t.name) && slotClass(t, day, q) === D);
       if (!T || slotClass(T, day, p) !== '') continue;
@@ -1685,6 +1686,7 @@
   function relocOptions(A, p, X, day) {
     const out = [];
     for (let q = 1; q <= 7; q++) {
+      if (q === 7 && String(X).startsWith('6ب')) continue;   // السادس الابتدائي: 6 حصص فقط
       if (q === p) continue;
       const mine = slotClass(A, day, q);
       if (mine !== '') { out.push({ q, ok: false, why: `${A.name} لديه حصة (${mine}) في ح${q}` }); continue; }
@@ -2171,6 +2173,7 @@
   function chains(B, p, q, Y, A, day) {
     const out = [];
     for (let r = 1; r <= 7; r++) {
+      if (r === 7 && String(Y).startsWith('6ب')) continue;   // السادس الابتدائي: 6 حصص فقط
       if (r === p || r === q) continue;
       if (!isFree(eff(B, day, r))) continue;
       const all = teachers.filter(t => t.name !== B.name && eff(t, day, r) === Y);
@@ -2184,6 +2187,7 @@
   function build(A, p, day) {
     const X = eff(A, day, p), res = [];
     for (let q = 1; q <= 7; q++) {
+      if (q === 7 && String(X).startsWith('6ب')) continue;   // السادس الابتدائي: 6 حصص فقط
       if (q === p) continue;
       const mine = eff(A, day, q);
       if (!isFree(mine)) { res.push({ q, ok: false, why: `${A.name} لديه حصة (${mine}) في ح${q}` }); continue; }
