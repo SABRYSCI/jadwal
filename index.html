@@ -391,25 +391,29 @@
       <!-- 4. التوقيعات الرسمية والختم المدرسي وحقوق التصميم -->
       <div class="print-footer pt-3 border-t border-slate-400">
         <div class="flex justify-between items-center text-xs md:text-sm font-bold px-2 md:px-6 text-slate-800">
-          <div class="text-right space-y-1">
-            <div>يعتمد / المعلم الأول المشرف: .........................</div>
-            <div>التاريخ: ..... / ..... / 2026 م</div>
+          <!-- يمين: مدير المدرسة -->
+          <div class="text-center space-y-1 min-w-[170px]">
+            <div>مدير المدرسة</div>
+            <div class="font-extrabold">الأستاذ محمد إبراهيم محمد ناصر</div>
+            <div class="font-normal">التوقيع: .........................</div>
           </div>
-          
+
           <!-- الختم الرسمي للمدرسة -->
           <div class="flex flex-col items-center justify-center">
             <img src="https://i.postimg.cc/x1zBrkqF/khtm-shfaf.jpg" alt="ختم المدرسة الرسمي" class="w-20 h-20 md:w-24 md:h-24 object-contain mix-blend-multiply opacity-90 select-none" crossorigin="anonymous" />
           </div>
 
-          <div class="text-left space-y-1" dir="rtl">
-            <div>مدير المدرسة: .........................</div>
-            <div>التوقيع: .........................</div>
+          <!-- يسار: المدير المساعد -->
+          <div class="text-center space-y-1 min-w-[170px]">
+            <div>المدير المساعد</div>
+            <div class="font-extrabold">الأستاذ عبدالله أحمد دليم</div>
+            <div class="font-normal">التوقيع: .........................</div>
           </div>
         </div>
-        
+
         <!-- حقوق التصميم بخط صغير -->
         <div class="mt-2 pt-1 border-t border-slate-200 text-center text-[10px] text-slate-400 font-normal select-none">
-          تصميم وبرمجة: أ. صبري محمد حمد
+          تصميم وبرمجة: صبري محمد حمد
         </div>
       </div>
 
@@ -1612,6 +1616,7 @@
   const DAY = () => E('selectedDay').value;
   const isBusy = c => !!c && c.trim() !== '' && !c.includes('اجتماع') && !c.includes('التمهن');
   const skipSet = new Set();   // حصص ألغى المستخدم تأمينها: «يوم|id»
+  window.mnSkipSet = skipSet;
   const absOf = n => absences.find(a => a.name === n);
   const endOf = a => a.endPeriod || 7;
   const absLabel = a => { const e = endOf(a); return (a.reason || 'غياب') + ((a.startPeriod === 1 && e === 7) ? '' : ` (ح${a.startPeriod}${e > a.startPeriod ? '–ح' + e : ''})`); };
@@ -2052,9 +2057,9 @@
   let lastDay = DAY();
   const origDayChange = window.handleDayChange;
   window.handleDayChange = function () {
-    dayStore[lastDay] = { absences, assignments: assignments.filter(a => a.isManual) };
+    if (!window.mnLoading) dayStore[lastDay] = { absences, assignments: assignments.filter(a => a.isManual) };
     lastDay = DAY();
-    const s = dayStore[lastDay] || { absences: [], assignments: [] };
+    const s = window.mnLoading ? { absences, assignments } : (dayStore[lastDay] || { absences: [], assignments: [] });
     absences = s.absences; assignments = s.assignments;
     renderAbsenceBadges();
     origDayChange();
@@ -2367,6 +2372,277 @@
   const pv = E('manualTeacherSchedulePreview');
   pv.insertAdjacentHTML('beforebegin', '<div id="mnMsg" class="text-xs font-bold text-emerald-700"></div>');
   if (E('manualTeacherSelect').value) refresh(false);
+})();
+</script>
+
+
+<!-- ===========================================================================
+  تحديث: الحفظ التلقائي + النسخ المتعددة لليوم الواحد + التصدير والاستيراد
+=========================================================================== -->
+<script>
+(function () {
+  const E = id => document.getElementById(id);
+  const DAYS_BY_IDX = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
+  const KEY = 'jadwal_store_v1';
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pad = n => String(n).padStart(2, '0');
+  const hhmm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+  let curDate = '', curDay = '', ready = false, lastHash = '', msgTimer = null;
+  window.mnLoading = false;
+
+  // ---------- التخزين ----------
+  function readStore() {
+    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.auto && s.vers) return s; } catch (e) {}
+    return { auto: {}, vers: {} };
+  }
+  function writeStore(s) {
+    try { localStorage.setItem(KEY, JSON.stringify(s)); return true; }
+    catch (e) { say('⚠️ تعذّر الحفظ في المتصفح (قد يكون ممتلئاً أو في وضع التصفح الخاص). صدّر نسخة احتياطية الآن.', true); return false; }
+  }
+  const keyOf = (d, day) => d + '__' + day;
+
+  function snapshot(date, day) {
+    return {
+      date, day, savedAt: new Date().toISOString(),
+      absences: clone(absences),
+      assignments: clone(assignments),
+      skip: [...window.mnSkipSet].filter(x => x.startsWith(day + '|'))
+    };
+  }
+  const isEmptySnap = s => !s.absences.length && !s.assignments.some(a => a.isManual);
+  const emptySnap = (date, day) => ({ date, day, savedAt: new Date().toISOString(), absences: [], assignments: [], skip: [] });
+  function counts(s) {
+    return {
+      abs: s.absences.length,
+      cov: s.assignments.filter(a => !a.isSwap && a.assignedTeacher).length,
+      swp: s.assignments.filter(a => a.isManual && a.isSwap && !a.isPartnerRow).length
+    };
+  }
+
+  // ---------- الحفظ التلقائي ----------
+  function saveAuto() {
+    if (!ready || window.mnLoading || !curDate) return;
+    const snap = snapshot(curDate, curDay);
+    const h = JSON.stringify([snap.absences, snap.assignments, snap.skip]);
+    if (h === lastHash) return;
+    lastHash = h;
+    const st = readStore(), k = keyOf(curDate, curDay);
+    if (isEmptySnap(snap)) delete st.auto[k]; else st.auto[k] = snap;
+    if (writeStore(st)) { E('mnAutoState').textContent = '✅ حُفظ تلقائياً ' + hhmm(new Date()); renderPanel(); }
+  }
+
+  // ---------- تطبيق حالة محفوظة ----------
+  function apply(s) {
+    window.mnLoading = true;
+    try {
+      E('selectedDate').value = s.date; E('selectedDay').value = s.day;
+      absences = clone(s.absences); assignments = clone(s.assignments);
+      [...window.mnSkipSet].forEach(x => { if (x.startsWith(s.day + '|')) window.mnSkipSet.delete(x); });
+      (s.skip || []).forEach(x => window.mnSkipSet.add(x));
+      curDate = s.date; curDay = s.day;
+      renderAbsenceBadges();
+      window.handleDayChange();
+    } finally { window.mnLoading = false; }
+    const snap = snapshot(curDate, curDay);
+    lastHash = JSON.stringify([snap.absences, snap.assignments, snap.skip]);
+    renderPanel();
+  }
+  const loadAuto = (d, day) => readStore().auto[keyOf(d, day)] || null;
+
+  // تغيير اليوم الدراسي يدوياً: احفظ ما قبله ثم حمّل (أو افرغ) حسب التاريخ
+  const prevDay = window.handleDayChange;
+  window.handleDayChange = function () {
+    if (window.mnLoading) { prevDay.apply(this, arguments); return; }
+    saveAuto();
+    apply(loadAuto(curDate, E('selectedDay').value) || emptySnap(curDate, E('selectedDay').value));
+  };
+
+  // تغيير التاريخ
+  function onDateChange() {
+    const d = E('selectedDate').value; if (!d || d === curDate) return;
+    saveAuto();
+    const wd = new Date(d + 'T12:00:00').getDay();
+    const day = (wd >= 0 && wd <= 4) ? DAYS_BY_IDX[wd] : E('selectedDay').value;
+    apply(loadAuto(d, day) || emptySnap(d, day));
+    say(loadAuto(d, day) ? '📂 تم استرجاع ما حُفظ لهذا التاريخ.' : 'ℹ️ تاريخ جديد: لا توجد بيانات محفوظة له.');
+  }
+
+  // ---------- النسخ المتعددة ----------
+  function saveVersion() {
+    if (!curDate) { say('اختر التاريخ أولاً.', true); return; }
+    const label = (E('mnVerLabel').value || '').trim() || ('نسخة ' + hhmm(new Date()));
+    const st = readStore(), arr = st.vers[curDate] = st.vers[curDate] || [];
+    arr.push({ id: 'v' + Date.now(), label, snap: snapshot(curDate, curDay) });
+    if (writeStore(st)) { E('mnVerLabel').value = ''; say('✅ تم حفظ «' + label + '». يمكنك الاستمرار بالإضافة عليها ثم حفظ نسخة جديدة.'); renderPanel(); }
+  }
+  function findVer(id) {
+    const st = readStore();
+    for (const d in st.vers) { const v = st.vers[d].find(x => x.id === id); if (v) return v; }
+    return null;
+  }
+  window.mnOpenVer = id => {
+    const v = findVer(id); if (!v) return;
+    if (!confirm('سيُستبدل الوضع الحالي على الشاشة بنسخة «' + v.label + '». (يمكنك حفظ الحالي كنسخة أولاً). متابعة؟')) return;
+    apply(v.snap); say('📂 تم فتح «' + v.label + '». أضف ما تريد ثم احفظ نسخة جديدة.');
+  };
+  window.mnDelVer = id => {
+    const v = findVer(id); if (!v || !confirm('حذف «' + v.label + '» نهائياً؟')) return;
+    const st = readStore();
+    for (const d in st.vers) st.vers[d] = st.vers[d].filter(x => x.id !== id);
+    writeStore(st); renderPanel();
+  };
+  window.mnOpenDay = k => { const s = readStore().auto[k]; if (s) { saveAuto(); apply(s); say('📂 تم فتح اليوم المحفوظ.'); } };
+  window.mnDelDay = d => {
+    if (!confirm('حذف كل ما حُفظ لتاريخ ' + d + ' (الحفظ التلقائي والنسخ)؟')) return;
+    const st = readStore();
+    Object.keys(st.auto).forEach(k => { if (k.startsWith(d + '__')) delete st.auto[k]; });
+    delete st.vers[d]; writeStore(st);
+    if (d === curDate) { apply(emptySnap(curDate, curDay)); }
+    renderPanel();
+  };
+
+  // ما أُضيف بعد النسخة (مقارنة بالوضع الحالي)
+  const absKey = a => [a.name, a.startPeriod, a.endPeriod || 7, a.reason || a.type].join('|');
+  const absTxt = a => a.name + (a.reason && a.reason !== 'غياب كامل' ? ' (' + a.reason + ')' : '');
+  function diffTxt(v) {
+    const s = v.snap; if (s.date !== curDate || s.day !== curDay) return '';
+    const old = new Set(s.absences.map(absKey)), now = new Set(absences.map(absKey));
+    const add = absences.filter(a => !old.has(absKey(a))).map(absTxt);
+    const rem = s.absences.filter(a => !now.has(absKey(a))).map(absTxt);
+    const oldSw = new Set(s.assignments.filter(a => a.isManual && !a.isPartnerRow).map(a => a.id));
+    const addSw = assignments.filter(a => a.isManual && !a.isPartnerRow && !oldSw.has(a.id)).length;
+    const parts = [];
+    if (add.length) parts.push('مضاف بعدها: ' + add.map(esc).join('، '));
+    if (addSw) parts.push('تبديلات جديدة: ' + addSw);
+    if (rem.length) parts.push('أُزيل: ' + rem.map(esc).join('، '));
+    return parts.length ? parts.join(' — ') : 'مطابقة للوضع الحالي';
+  }
+
+  // ---------- التصدير والاستيراد ----------
+  function download(name, obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+  }
+  const pack = (auto, vers) => ({ type: 'jadwal-backup', version: 1, exportedAt: new Date().toISOString(), auto, vers });
+  window.mnExportVer = id => {
+    const v = findVer(id); if (!v) return;
+    download(`جدول-${v.snap.date}-${v.snap.day}-${v.label.replace(/[\\/:*?"<>|\s]+/g, '_')}.json`, pack({}, { [v.snap.date]: [v] }));
+  };
+  window.mnExportDay = d => {
+    const st = readStore(), auto = {}, day = (Object.keys(st.auto).find(k => k.startsWith(d + '__')) || '').split('__')[1] || '';
+    Object.keys(st.auto).forEach(k => { if (k.startsWith(d + '__')) auto[k] = st.auto[k]; });
+    download(`جدول-${d}${day ? '-' + day : ''}.json`, pack(auto, st.vers[d] ? { [d]: st.vers[d] } : {}));
+  };
+  function exportAll() {
+    const st = readStore(), now = new Date();
+    download(`نسخة-احتياطية-جدول-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.json`, pack(st.auto, st.vers));
+    say('✅ تم تصدير نسخة احتياطية كاملة (تجدها في مجلد التنزيلات).');
+  }
+  function importFile(file) {
+    const r = new FileReader();
+    r.onload = () => {
+      let data; try { data = JSON.parse(r.result); } catch (e) { say('⚠️ الملف غير صالح.', true); return; }
+      if (!data || data.type !== 'jadwal-backup' || !data.auto || !data.vers) { say('⚠️ هذا ليس ملف نسخة من هذه الصفحة.', true); return; }
+      const st = readStore(); let nAuto = 0, nVer = 0, skipped = 0;
+      Object.keys(data.auto).forEach(k => {
+        if (st.auto[k] && !confirm('اليوم المحفوظ ' + k.replace('__', ' - ') + ' موجود مسبقاً. استبداله بالملف المستورد؟')) { skipped++; return; }
+        st.auto[k] = data.auto[k]; nAuto++;
+      });
+      Object.keys(data.vers).forEach(d => {
+        const arr = st.vers[d] = st.vers[d] || [];
+        data.vers[d].forEach(v => { if (!arr.some(x => x.id === v.id)) { arr.push(v); nVer++; } });
+      });
+      if (writeStore(st)) {
+        say(`✅ تم الاستيراد: ${nAuto} يوم، ${nVer} نسخة` + (skipped ? ` (تخطّي ${skipped})` : '') + '. افتح ما تريد من «سجل الأيام».');
+        renderPanel();
+      }
+    };
+    r.readAsText(file);
+  }
+
+  // ---------- الواجهة ----------
+  function say(t, bad) {
+    const el = E('mnSaveMsg'); if (!el) return;
+    el.className = 'text-xs font-bold ' + (bad ? 'text-rose-700' : 'text-emerald-700');
+    el.textContent = t; clearTimeout(msgTimer); msgTimer = setTimeout(() => { el.textContent = ''; }, 9000);
+  }
+  const fmtCounts = c => `غياب ${c.abs} · تأمين ${c.cov} · تبديل ${c.swp}`;
+  const btn = (cls, fn, t) => `<button type="button" onclick="${fn}" class="${cls} text-[11px] font-bold px-2 py-1 rounded-md border">${t}</button>`;
+
+  function renderPanel() {
+    const box = E('mnPanelBody'); if (!box) return;
+    const st = readStore();
+    const vers = (st.vers[curDate] || []).filter(v => v.snap.day === curDay);
+    const verHtml = vers.length ? vers.map(v => {
+      const c = counts(v.snap), t = new Date(v.snap.savedAt), df = diffTxt(v);
+      return `<div class="bg-white border border-slate-200 rounded-lg p-2 space-y-1">
+        <div class="flex flex-wrap items-center justify-between gap-2"><b class="text-xs text-slate-800">📌 ${esc(v.label)}</b><span class="text-[10px] text-slate-500">${hhmm(t)} · ${fmtCounts(c)}</span></div>
+        ${df ? `<div class="text-[11px] ${df.startsWith('مطابقة') ? 'text-slate-500' : 'text-amber-800 font-bold'}">${df}</div>` : ''}
+        <div class="flex flex-wrap gap-1">${btn('bg-indigo-600 text-white border-indigo-700', `mnOpenVer('${v.id}')`, 'فتح')}${btn('bg-white text-slate-700 border-slate-300', `mnExportVer('${v.id}')`, '⬇️ تصدير')}${btn('bg-white text-rose-700 border-rose-300', `mnDelVer('${v.id}')`, 'حذف')}</div></div>`;
+    }).join('') : '<div class="text-[11px] text-slate-500">لا توجد نسخ محفوظة لهذا اليوم بعد. اضغط «حفظ نسخة» بعد إرسال الاستمارة.</div>';
+
+    const dates = {};
+    Object.keys(st.auto).forEach(k => { const [d, day] = k.split('__'); (dates[d] = dates[d] || { day, auto: st.auto[k], n: 0 }); });
+    Object.keys(st.vers).forEach(d => { if (st.vers[d].length) { dates[d] = dates[d] || { day: st.vers[d][0].snap.day, auto: null, n: 0 }; dates[d].n = st.vers[d].length; } });
+    const dayHtml = Object.keys(dates).sort().reverse().map(d => {
+      const x = dates[d], c = x.auto ? fmtCounts(counts(x.auto)) : '';
+      return `<div class="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg p-2">
+        <div class="text-xs"><b>${esc(d)}</b> <span class="text-slate-500">(${esc(x.day)})</span> <span class="text-[10px] text-slate-500">${c}${x.n ? ' · ' + x.n + ' نسخة' : ''}</span></div>
+        <div class="flex gap-1">${x.auto ? btn('bg-indigo-600 text-white border-indigo-700', `mnOpenDay('${d}__${x.day}')`, 'فتح') : ''}${btn('bg-white text-slate-700 border-slate-300', `mnExportDay('${d}')`, '⬇️ تصدير')}${btn('bg-white text-rose-700 border-rose-300', `mnDelDay('${d}')`, 'حذف')}</div></div>`;
+    }).join('') || '<div class="text-[11px] text-slate-500">لا توجد أيام محفوظة بعد.</div>';
+
+    box.innerHTML = `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div class="space-y-2"><div class="text-xs font-extrabold text-slate-800">📌 نسخ هذا اليوم (${esc(curDate || '---')} — ${esc(curDay)}):</div>${verHtml}</div>
+      <div class="space-y-2"><div class="text-xs font-extrabold text-slate-800">🗂️ سجل الأيام المحفوظة:</div><div class="space-y-1 max-h-72 overflow-y-auto">${dayHtml}</div></div></div>`;
+  }
+
+  function buildUI() {
+    const anchor = E('selectedDate').parentElement.parentElement;
+    anchor.insertAdjacentHTML('afterend', `
+    <details id="mnPanel" class="no-print bg-indigo-50/60 border border-indigo-200 rounded-xl p-3" open>
+      <summary class="cursor-pointer flex flex-wrap items-center justify-between gap-2 text-sm font-extrabold text-indigo-900">
+        <span>💾 الحفظ والرجوع لما تم (نسخ متعددة لليوم الواحد)</span>
+        <span id="mnAutoState" class="text-[11px] font-bold text-emerald-700">✅ الحفظ التلقائي مُفعّل</span>
+      </summary>
+      <div class="mt-3 space-y-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <input id="mnVerLabel" type="text" placeholder="اسم النسخة (مثال: أُرسلت 7:30)" class="flex-1 min-w-[180px] bg-white border border-slate-300 rounded-lg p-2 text-xs font-semibold">
+          <button type="button" id="mnSaveVerBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs">💾 حفظ نسخة</button>
+          <button type="button" id="mnExportAllBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold px-3 py-2 rounded-lg text-xs">⬇️ نسخة احتياطية كاملة</button>
+          <button type="button" id="mnImportBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold px-3 py-2 rounded-lg text-xs">⬆️ استيراد ملف</button>
+          <input id="mnImportFile" type="file" accept=".json,application/json" class="hidden">
+        </div>
+        <div id="mnSaveMsg" class="text-xs font-bold"></div>
+        <div id="mnPanelBody"></div>
+        <div class="text-[10px] text-slate-500">الحفظ التلقائي يتم في هذا المتصفح وعلى هذا الجهاز. للاحتياط وللنقل بين الأجهزة استخدم التصدير (يُحفظ الملف في مجلد التنزيلات باسم اليوم والتاريخ).</div>
+      </div>
+    </details>`);
+    E('mnSaveVerBtn').onclick = saveVersion;
+    E('mnExportAllBtn').onclick = exportAll;
+    E('mnImportBtn').onclick = () => E('mnImportFile').click();
+    E('mnImportFile').onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
+    E('selectedDate').addEventListener('change', onDateChange);
+  }
+
+  // ---------- التشغيل ----------
+  const prevOnload = window.onload;
+  window.onload = function () {
+    if (prevOnload) prevOnload();
+    buildUI();
+    const d = E('selectedDate').value;
+    const wd = new Date(d + 'T12:00:00').getDay();
+    const day = (wd >= 0 && wd <= 4) ? DAYS_BY_IDX[wd] : E('selectedDay').value;
+    const saved = loadAuto(d, day);
+    apply(saved || emptySnap(d, day));
+    if (saved) say('📂 تم استرجاع ما حُفظ سابقاً لهذا اليوم تلقائياً.');
+    ready = true;
+    setInterval(saveAuto, 2000);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) saveAuto(); });
+    window.addEventListener('pagehide', saveAuto);
+  };
 })();
 </script>
 
